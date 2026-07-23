@@ -16,6 +16,7 @@
     "zip": "wxt zip",
     "test:security": "node --experimental-strip-types --test tests/security.test.mjs",
     "test:relay": "node --experimental-strip-types --test tests/relay.test.mjs",
+    "test:scheduler": "node --experimental-strip-types --test tests/scheduler.test.mjs",
     "postinstall": "wxt prepare"
   },
   "dependencies": {

@@ -1,3 +1,5 @@
+import { initializeTaskJournal } from './task-journal';
+
 let initializationError: string | null = null;
 
 async function restrictStorageAccess(): Promise<void> {
@@ -13,7 +15,12 @@ async function restrictStorageAccess(): Promise<void> {
   await chromeApi.storage.session?.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' });
 }
 
-export const initializationPromise: Promise<void> = restrictStorageAccess().catch((error) => {
+async function initialize(): Promise<void> {
+  await restrictStorageAccess();
+  await initializeTaskJournal();
+}
+
+export const initializationPromise: Promise<void> = initialize().catch((error) => {
   initializationError = error instanceof Error ? error.message : 'Background initialization failed';
   throw error;
 });

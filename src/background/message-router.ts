@@ -8,6 +8,8 @@ import type {
   TranslateRequest,
   MessageResponse,
   TranslateResult,
+  TranslationBatchRequest,
+  TranslationBatchResult,
 } from '../shared/types';
 import { DEFAULT_SETTINGS, PRIVATE_RELAY_PROVIDER_ID } from '../shared/constants';
 import { clearApiKey, getApiKey, getSecretStatus, saveApiKey } from './secret-store';
@@ -19,8 +21,11 @@ import {
   type RuntimeSenderLike,
 } from './message-policy';
 import { RelayAdapter } from '../providers/relay';
+import { TranslationScheduler } from './scheduler';
+import { getTaskJournal } from './task-journal';
 
 const providerManager = new ProviderManager();
+const translationScheduler = new TranslationScheduler();
 const diagnosticLocks = new Map<string, Promise<unknown>>();
 
 function singleFlight<T>(key: string, operation: () => Promise<T>): Promise<T> {
@@ -29,6 +34,10 @@ function singleFlight<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const promise = operation().finally(() => diagnosticLocks.delete(key));
   diagnosticLocks.set(key, promise);
   return promise;
+}
+
+export async function handleTabRemoved(tabId: number): Promise<void> {
+  await translationScheduler.cancelTab(tabId);
 }
 
 function stripSecrets(config: ProviderConfig): ProviderConfig {
@@ -192,6 +201,16 @@ async function configuredRelay(): Promise<RelayAdapter> {
   }, { useCache: false }) as RelayAdapter;
 }
 
+async function configuredRelayRuntime(): Promise<{ relay: RelayAdapter; config: ProviderConfig }> {
+  const settings = await getSettings();
+  const config = settings.providers[0];
+  const relay = providerManager.getProvider({
+    ...config,
+    apiKey: await getApiKey(settings.keyStorageMode),
+  }, { useCache: false }) as RelayAdapter;
+  return { relay, config };
+}
+
 async function handleGetModels(): Promise<MessageResponse<ModelListResult>> {
   try {
     const relay = await configuredRelay();
@@ -239,6 +258,52 @@ export async function handleMessage(
     case 'TEST_CONNECTION':
       if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
       return handleTestConnection();
+    case 'TRANSLATE_BATCH': {
+      const tabId = sender.tab?.id;
+      if (tabId == null) return { success: false, error: 'CONTENT_SCRIPT_REQUIRED' };
+      try {
+        const { relay, config } = await configuredRelayRuntime();
+        const data = await translationScheduler.submit(
+          message.payload as TranslationBatchRequest,
+          tabId,
+          relay,
+          config,
+        );
+        return { success: true, data } as MessageResponse<TranslationBatchResult>;
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'BATCH_FAILED' };
+      }
+    }
+    case 'TASK_CONTROL': {
+      const tabId = sender.tab?.id;
+      const payload = message.payload as { taskId?: string; sessionId?: string; action?: string };
+      if (tabId == null || !payload.taskId || !payload.sessionId) {
+        return { success: false, error: 'INVALID_TASK_CONTROL' };
+      }
+      const journal = await getTaskJournal(payload.taskId, payload.sessionId);
+      if (!journal || journal.tabId !== tabId) return { success: false, error: 'TASK_NOT_FOUND' };
+      const allowed = ['pause', 'resume', 'cancel', 'restore', 'complete'] as const;
+      if (!allowed.includes(payload.action as typeof allowed[number])) {
+        return { success: false, error: 'INVALID_TASK_CONTROL' };
+      }
+      const changed = await translationScheduler.control(
+        payload.taskId,
+        payload.sessionId,
+        payload.action as typeof allowed[number],
+      );
+      return { success: true, data: changed };
+    }
+    case 'GET_TASK_RECOVERY': {
+      const tabId = sender.tab?.id;
+      const payload = message.payload as { taskId?: string; sessionId?: string };
+      if (tabId == null || !payload.taskId || !payload.sessionId) {
+        return { success: false, error: 'INVALID_RECOVERY_REQUEST' };
+      }
+      const journal = await getTaskJournal(payload.taskId, payload.sessionId);
+      return journal?.tabId === tabId
+        ? { success: true, data: journal }
+        : { success: false, error: 'TASK_NOT_FOUND' };
+    }
     case 'SAVE_SETTINGS': {
       if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
       return { success: true, data: await saveSettings(message.payload as Partial<AppSettings>) };

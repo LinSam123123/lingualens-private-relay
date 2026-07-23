@@ -51,6 +51,50 @@ export interface ModelListResult {
   httpStatus: number;
 }
 
+export interface TranslationItem {
+  id: string;
+  text: string;
+}
+
+export type BatchStatus =
+  | 'queued'
+  | 'dispatched'
+  | 'completed'
+  | 'failed'
+  | 'interrupted/unknown'
+  | 'cancelled';
+
+export interface TranslationBatchRequest {
+  taskId: string;
+  sessionId: string;
+  batchId: string;
+  requestId: string;
+  sourceLang: string;
+  targetLang: string;
+  items: TranslationItem[];
+  manualRetryUnknown?: boolean;
+}
+
+export interface BatchItemResult {
+  id: string;
+  status: Exclude<BatchStatus, 'queued' | 'dispatched'>;
+  translated?: string;
+  error?: string;
+}
+
+export interface TranslationBatchResult {
+  taskId: string;
+  batchId: string;
+  requestId: string;
+  status: Exclude<BatchStatus, 'queued' | 'dispatched'>;
+  items: BatchItemResult[];
+  attempts: number;
+  requestsUsed: number;
+  charsUsed: number;
+}
+
+export type TaskControlAction = 'pause' | 'resume' | 'cancel' | 'restore' | 'complete';
+
 export type ChunkingMode = 'quality' | 'speed';
 
 export type SelectionTriggerMode = 'icon' | 'instant' | 'modifier' | 'off';
@@ -89,6 +133,9 @@ export type MessageType =
   | { type: 'GET_SECRET_STATUS' }
   | { type: 'GET_MODELS' }
   | { type: 'TEST_CONNECTION' }
+  | { type: 'TRANSLATE_BATCH'; payload: TranslationBatchRequest }
+  | { type: 'TASK_CONTROL'; payload: { taskId: string; sessionId: string; action: TaskControlAction } }
+  | { type: 'GET_TASK_RECOVERY'; payload: { taskId: string; sessionId: string } }
   | { type: 'SAVE_SETTINGS'; payload: Partial<AppSettings> }
   | { type: 'UPDATE_RUNTIME_SETTINGS'; payload: RuntimeSettingsPatch }
   | { type: 'CLEAR_SECRET' };

@@ -1,4 +1,4 @@
-import { handleMessage, getSettings, saveSettings } from '../background/message-router';
+import { handleMessage, getSettings, saveSettings, handleTabRemoved } from '../background/message-router';
 import { registerInstallOnboarding } from '../background/onboarding';
 import {
   isPageTranslateStarted,
@@ -309,6 +309,7 @@ export default defineBackground(() => {
 
   browser.tabs.onRemoved.addListener((tabId) => {
     pageTranslatePhaseByTab.delete(tabId);
+    void requireInitialization().then(() => handleTabRemoved(tabId));
   });
 
   browser.contextMenus.onClicked.addListener(async (info, tab) => {
