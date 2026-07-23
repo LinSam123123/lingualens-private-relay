@@ -87,6 +87,27 @@ export interface TextSegment {
   subSegments?: SubSegment[];
 }
 
+export interface DomTranslationItem {
+  id: string;
+  node: Text;
+  text: string;
+  originalText: string;
+  leadingWhitespace: string;
+  trailingWhitespace: string;
+}
+
+const stableNodeIds = new WeakMap<Text, string>();
+let stableNodeCounter = 0;
+
+function stableNodeId(node: Text): string {
+  let id = stableNodeIds.get(node);
+  if (!id) {
+    id = `segment-${String(++stableNodeCounter).padStart(6, '0')}`;
+    stableNodeIds.set(node, id);
+  }
+  return id;
+}
+
 function isVisible(el: Element): boolean {
   const style = getComputedStyle(el);
   if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
@@ -445,4 +466,44 @@ export function extractSegments(
   segments = mergeSmallSegments(segments, limit);
 
   return segments;
+}
+
+/** Extracts a static page snapshot while keeping a one-to-one DOM node mapping. */
+export function extractTranslationItems(
+  root: Element = document.body,
+  maxPageChars = 100_000,
+): DomTranslationItem[] {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
+      if (isInsideSkipTag(node, root)) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if (!parent || parent.isContentEditable) return NodeFilter.FILTER_REJECT;
+      if (parent.closest('[contenteditable]:not([contenteditable="false"])')) return NodeFilter.FILTER_REJECT;
+      if (!isVisible(parent) || isPopupOverlay(parent)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  const items: DomTranslationItem[] = [];
+  let chars = 0;
+  let node: Text | null;
+  while ((node = walker.nextNode() as Text | null)) {
+    const originalText = node.textContent ?? '';
+    const text = originalText.trim();
+    if (shouldSkipTranslation(text)) continue;
+    if (chars + text.length > maxPageChars) break;
+    const leadingWhitespace = originalText.match(/^\s*/)?.[0] ?? '';
+    const trailingWhitespace = originalText.match(/\s*$/)?.[0] ?? '';
+    items.push({
+      id: stableNodeId(node),
+      node,
+      text,
+      originalText,
+      leadingWhitespace,
+      trailingWhitespace,
+    });
+    chars += text.length;
+  }
+  return items;
 }

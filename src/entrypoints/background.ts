@@ -293,6 +293,7 @@ export default defineBackground(() => {
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.status === 'loading') {
       pageTranslatePhaseByTab.delete(tabId);
+      void requireInitialization().then(() => handleTabRemoved(tabId));
     }
     // Session restore after cold start often skips `loading`; `complete` carries the final URL.
     if (changeInfo.status === 'loading' || changeInfo.status === 'complete' || changeInfo.url) {

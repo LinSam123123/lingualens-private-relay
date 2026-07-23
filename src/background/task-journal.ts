@@ -73,6 +73,7 @@ export async function ensureTask(
   return mutateJournal((journal) => {
     const existing = journal[request.taskId];
     if (existing && existing.sessionId !== request.sessionId) throw new Error('TASK_SESSION_MISMATCH');
+    if (existing && existing.tabId !== tabId) throw new Error('TASK_TAB_MISMATCH');
     const now = Date.now();
     const task = existing ?? {
       taskId: request.taskId,

@@ -211,6 +211,52 @@ async function configuredRelayRuntime(): Promise<{ relay: RelayAdapter; config: 
   return { relay, config };
 }
 
+async function handleTranslationBatch(
+  request: TranslationBatchRequest,
+  tabId: number,
+): Promise<TranslationBatchResult> {
+  const { relay, config } = await configuredRelayRuntime();
+  const cached = await Promise.all(request.items.map(async (item) => ({
+    item,
+    result: await getCached(item.text, request.sourceLang, request.targetLang, config.id),
+  })));
+  const missing = cached.filter((entry) => !entry.result).map((entry) => entry.item);
+
+  let scheduled: TranslationBatchResult | null = null;
+  if (missing.length > 0) {
+    scheduled = await translationScheduler.submit({ ...request, items: missing }, tabId, relay, config);
+    const sourceById = new Map(missing.map((item) => [item.id, item.text]));
+    await Promise.all(scheduled.items.map(async (item) => {
+      if (item.status !== 'completed' || item.translated === undefined) return;
+      const source = sourceById.get(item.id);
+      if (source === undefined) return;
+      await setCache(source, request.sourceLang, request.targetLang, config.id, {
+        translated: item.translated,
+        provider: config.id,
+        cached: false,
+      });
+    }));
+  }
+
+  const scheduledById = new Map(scheduled?.items.map((item) => [item.id, item]) ?? []);
+  const items = cached.map(({ item, result }) => result
+    ? { id: item.id, status: 'completed' as const, translated: result.translated }
+    : scheduledById.get(item.id) ?? { id: item.id, status: 'failed' as const, error: 'BATCH_RESULT_MISSING' });
+  const status = items.every((item) => item.status === 'completed')
+    ? 'completed'
+    : scheduled?.status ?? 'failed';
+  return {
+    taskId: request.taskId,
+    batchId: request.batchId,
+    requestId: request.requestId,
+    status,
+    items,
+    attempts: scheduled?.attempts ?? 0,
+    requestsUsed: scheduled?.requestsUsed ?? 0,
+    charsUsed: scheduled?.charsUsed ?? 0,
+  };
+}
+
 async function handleGetModels(): Promise<MessageResponse<ModelListResult>> {
   try {
     const relay = await configuredRelay();
@@ -262,13 +308,7 @@ export async function handleMessage(
       const tabId = sender.tab?.id;
       if (tabId == null) return { success: false, error: 'CONTENT_SCRIPT_REQUIRED' };
       try {
-        const { relay, config } = await configuredRelayRuntime();
-        const data = await translationScheduler.submit(
-          message.payload as TranslationBatchRequest,
-          tabId,
-          relay,
-          config,
-        );
+        const data = await handleTranslationBatch(message.payload as TranslationBatchRequest, tabId);
         return { success: true, data } as MessageResponse<TranslationBatchResult>;
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : 'BATCH_FAILED' };

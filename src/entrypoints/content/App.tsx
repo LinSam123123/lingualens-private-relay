@@ -235,7 +235,9 @@ export function ContentApp({ onReady }: Props) {
 
     applyPageTranslatePhase('running');
     setMode('hidden');
-    const initial = { total: 0, done: 0, errors: 0 };
+    const initial: TranslateProgress = {
+      total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0,
+    };
     pageProgressRef.current = initial;
     setPageProgress(initial);
 
@@ -245,8 +247,9 @@ export function ContentApp({ onReady }: Props) {
           targetLang: settings?.defaultTargetLang ?? resolveDefaultTargetLang(),
           sourceLang: settings?.defaultSourceLang ?? 'auto',
           displayMode,
-          concurrency: 4,
-          chunkingMode: settings?.chunkingMode ?? 'quality',
+          maxCharsPerRequest: settings?.providers[0]?.maxCharsPerRequest ?? 8_000,
+          maxPageChars: settings?.providers[0]?.maxPageChars ?? 100_000,
+          maxPageRequests: settings?.providers[0]?.maxPageRequests ?? 100,
         },
         (progress) => {
           // Keep ref in sync here: `finally` runs before React re-renders after the last onProgress.
@@ -260,12 +263,12 @@ export function ContentApp({ onReady }: Props) {
   }, [displayMode]);
 
   const stopPageTranslation = () => {
-    engineRef.current.stop();
+    void engineRef.current.cancel();
     finishPageTranslateSession(pageProgressRef.current);
   };
 
   const restorePageTranslation = () => {
-    engineRef.current.restore();
+    void engineRef.current.restore();
     pageProgressRef.current = null;
     setPageProgress(null);
     applyPageTranslatePhase('idle');

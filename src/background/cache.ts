@@ -15,7 +15,7 @@ let dirty = false;
 
 async function getMemoryCache(): Promise<Map<string, CacheEntry>> {
   if (memoryCache) return memoryCache;
-  const data = await browser.storage.local.get(STORAGE_KEY);
+  const data = await browser.storage.session.get(STORAGE_KEY);
   const raw = data[STORAGE_KEY] as Record<string, CacheEntry> | undefined;
   memoryCache = raw ? new Map(Object.entries(raw)) : new Map();
   return memoryCache;
@@ -29,7 +29,7 @@ async function flushCache(): Promise<void> {
   if (!dirty || !memoryCache) return;
   dirty = false;
   try {
-    await browser.storage.local.set({
+    await browser.storage.session.set({
       [STORAGE_KEY]: Object.fromEntries(memoryCache),
     });
   } catch (err) {
@@ -44,7 +44,7 @@ async function flushCache(): Promise<void> {
       memoryCache.delete(key);
     }
     try {
-      await browser.storage.local.set({
+      await browser.storage.session.set({
         [STORAGE_KEY]: Object.fromEntries(memoryCache),
       });
     } catch {
@@ -130,7 +130,7 @@ export async function clearCache(): Promise<void> {
     clearTimeout(persistTimer);
     persistTimer = null;
   }
-  await browser.storage.local.remove(STORAGE_KEY);
+  await browser.storage.session.remove(STORAGE_KEY);
 }
 
 export async function getCacheStats(): Promise<{ size: number; maxSize: number }> {

@@ -1,6 +1,15 @@
-import { extractSegments, type TextSegment } from './dom-walker';
-import { Semaphore } from './semaphore';
-import type { ChunkingMode } from '../../shared/types';
+import { extractTranslationItems, type DomTranslationItem } from './dom-walker';
+import type {
+  BatchItemResult,
+  TranslationBatchRequest,
+  TranslationBatchResult,
+} from '../../shared/types';
+import {
+  buildBatches,
+  buildNetworkItems,
+  type BatchDefinition,
+  type NetworkItem,
+} from './page-batching';
 
 export type DisplayMode = 'replace' | 'bilingual';
 
@@ -8,205 +17,283 @@ export interface PageTranslateOptions {
   targetLang: string;
   sourceLang: string;
   displayMode: DisplayMode;
-  concurrency: number;
-  chunkingMode: ChunkingMode;
+  maxCharsPerRequest: number;
+  maxPageChars: number;
+  maxPageRequests: number;
 }
 
 export interface TranslateProgress {
   total: number;
+  pending: number;
   done: number;
   errors: number;
+  unknown: number;
+  cancelled: number;
 }
 
 type ProgressCallback = (progress: TranslateProgress) => void;
 
 export class PageTranslateEngine {
-  private segments: TextSegment[] = [];
-  private abortController: AbortController | null = null;
-  private translatedSegments = new Map<string, string>();
-  private bilingualInserted: HTMLElement[] = [];
+  private domItems: DomTranslationItem[] = [];
+  private domById = new Map<string, DomTranslationItem>();
+  private chunksByDomId = new Map<string, NetworkItem[]>();
+  private translatedChunks = new Map<string, string>();
+  private itemFailures = new Map<string, BatchItemResult>();
+  private bilingualMarkers: HTMLElement[] = [];
+  private taskId = '';
+  private sessionId = crypto.randomUUID();
+  private batches: BatchDefinition[] = [];
   private isRunning = false;
+  private isPaused = false;
+  private isCancelled = false;
+  private progress: TranslateProgress = {
+    total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0,
+  };
 
   get running(): boolean {
     return this.isRunning;
   }
 
+  get paused(): boolean {
+    return this.isPaused;
+  }
+
   async start(options: PageTranslateOptions, onProgress: ProgressCallback): Promise<void> {
     if (this.isRunning) return;
+    this.resetTaskState();
     this.isRunning = true;
-    this.abortController = new AbortController();
+    this.taskId = crypto.randomUUID();
+    this.domItems = extractTranslationItems(document.body, options.maxPageChars);
+    this.domById = new Map(this.domItems.map((item) => [item.id, item]));
 
-    this.segments = extractSegments(document.body, options.chunkingMode);
-    const progress: TranslateProgress = { total: this.segments.length, done: 0, errors: 0 };
-    onProgress({ ...progress });
+    const networkItems = buildNetworkItems(this.domItems, options.maxCharsPerRequest);
+    this.batches = buildBatches(networkItems, options.maxCharsPerRequest)
+      .slice(0, options.maxPageRequests);
+    const scheduledItems = this.batches.flatMap((batch) => batch.items);
+    for (const item of scheduledItems) {
+      const list = this.chunksByDomId.get(item.domItemId) ?? [];
+      list.push(item);
+      this.chunksByDomId.set(item.domItemId, list);
+    }
+    this.progress = {
+      total: scheduledItems.length,
+      pending: scheduledItems.length,
+      done: 0,
+      errors: 0,
+      unknown: 0,
+      cancelled: 0,
+    };
+    onProgress({ ...this.progress });
 
-    const sem = new Semaphore(options.concurrency);
-
-    const tasks = this.segments.map(async (segment) => {
-      if (this.abortController?.signal.aborted) return;
-
-      await sem.acquire();
-      if (this.abortController?.signal.aborted) { sem.release(); return; }
-
-      try {
-        const response = await browser.runtime.sendMessage({
-          type: 'TRANSLATE',
-          payload: {
-            text: segment.text,
-            sourceLang: options.sourceLang,
-            targetLang: options.targetLang,
-          },
-        });
-
-        if (this.abortController?.signal.aborted) return;
-
-        if (response?.success) {
-          this.translatedSegments.set(segment.id, response.data.translated);
-          this.applyTranslation(segment, response.data.translated, options.displayMode);
-          progress.done++;
-        } else {
-          progress.errors++;
-        }
-      } catch {
-        progress.errors++;
-      } finally {
-        sem.release();
-        onProgress({ ...progress });
-      }
-    });
-
+    const tasks = this.batches.map((batch) => this.submitBatch(batch, options, onProgress));
     await Promise.allSettled(tasks);
     this.isRunning = false;
+    if (!this.isCancelled) {
+      await browser.runtime.sendMessage({
+        type: 'TASK_CONTROL',
+        payload: { taskId: this.taskId, sessionId: this.sessionId, action: 'complete' },
+      }).catch(() => undefined);
+    }
   }
 
-  stop(): void {
-    this.abortController?.abort();
+  async pause(): Promise<void> {
+    if (!this.isRunning || this.isPaused) return;
+    this.isPaused = true;
+    await this.control('pause');
+  }
+
+  async resume(): Promise<void> {
+    if (!this.isRunning || !this.isPaused || this.isCancelled) return;
+    this.isPaused = false;
+    await this.control('resume');
+  }
+
+  async cancel(): Promise<void> {
+    if (!this.taskId || this.isCancelled) return;
+    this.isCancelled = true;
+    this.isPaused = false;
+    await this.control('cancel');
     this.isRunning = false;
   }
 
-  restore(): void {
-    this.stop();
-    for (const segment of this.segments) {
-      for (let i = 0; i < segment.textNodes.length; i++) {
-        if (segment.textNodes[i].parentNode) {
-          segment.textNodes[i].textContent = segment.originalTexts[i];
-        }
-      }
+  async restore(): Promise<void> {
+    if (this.taskId) await this.control('restore');
+    this.isCancelled = true;
+    this.isRunning = false;
+    this.isPaused = false;
+    for (const item of this.domItems) {
+      if (item.node.parentNode) item.node.textContent = item.originalText;
     }
     this.removeBilingualMarkers();
-    this.translatedSegments.clear();
-    this.segments = [];
+    this.resetTaskState();
+  }
+
+  async retryFailed(
+    options: PageTranslateOptions,
+    onProgress: ProgressCallback,
+  ): Promise<void> {
+    await this.retryItems(options, onProgress, 'failed');
+  }
+
+  async retryUnknown(
+    options: PageTranslateOptions,
+    onProgress: ProgressCallback,
+  ): Promise<void> {
+    await this.retryItems(options, onProgress, 'interrupted/unknown');
+  }
+
+  private async retryItems(
+    options: PageTranslateOptions,
+    onProgress: ProgressCallback,
+    status: 'failed' | 'interrupted/unknown',
+  ): Promise<void> {
+    const ids = [...this.itemFailures.values()]
+      .filter((item) => item.status === status)
+      .map((item) => item.id);
+    if (ids.length === 0) return;
+    const retryBatches = this.batches
+      .map((batch) => ({ ...batch, items: batch.items.filter((item) => ids.includes(item.id)) }))
+      .filter((batch) => batch.items.length > 0);
+    this.taskId = crypto.randomUUID();
+    this.isCancelled = false;
+    this.isRunning = true;
+    await Promise.allSettled(
+      retryBatches.map((batch) => this.submitBatch(
+        batch,
+        options,
+        onProgress,
+        status === 'interrupted/unknown',
+      )),
+    );
+    this.isRunning = false;
+    await browser.runtime.sendMessage({
+      type: 'TASK_CONTROL',
+      payload: { taskId: this.taskId, sessionId: this.sessionId, action: 'complete' },
+    }).catch(() => undefined);
   }
 
   switchMode(mode: DisplayMode): void {
-    for (const segment of this.segments) {
-      for (let i = 0; i < segment.textNodes.length; i++) {
-        if (segment.textNodes[i].parentNode) {
-          segment.textNodes[i].textContent = segment.originalTexts[i];
-        }
-      }
+    for (const item of this.domItems) {
+      if (item.node.parentNode) item.node.textContent = item.originalText;
     }
     this.removeBilingualMarkers();
+    for (const item of this.domItems) this.applyDomItemIfReady(item.id, mode);
+  }
 
-    for (const segment of this.segments) {
-      const translated = this.translatedSegments.get(segment.id);
-      if (translated) {
-        this.applyTranslation(segment, translated, mode);
+  private async submitBatch(
+    batch: BatchDefinition,
+    options: PageTranslateOptions,
+    onProgress: ProgressCallback,
+    manualRetryUnknown = false,
+  ): Promise<void> {
+    const request: TranslationBatchRequest = {
+      taskId: this.taskId,
+      sessionId: this.sessionId,
+      batchId: batch.batchId,
+      requestId: batch.requestId,
+      sourceLang: options.sourceLang,
+      targetLang: options.targetLang,
+      items: batch.items.map(({ id, text }) => ({ id, text })),
+      manualRetryUnknown,
+    };
+    try {
+      const response = await browser.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: request });
+      if (!response?.success) {
+        this.recordBatchFailure(batch, 'interrupted/unknown', response?.error ?? 'BACKGROUND_UNAVAILABLE');
+      } else {
+        this.applyBatchResult(response.data as TranslationBatchResult, options.displayMode);
+      }
+    } catch {
+      this.recordBatchFailure(batch, 'interrupted/unknown', 'BACKGROUND_INTERRUPTED');
+    } finally {
+      this.recountProgress();
+      onProgress({ ...this.progress });
+    }
+  }
+
+  private applyBatchResult(result: TranslationBatchResult, mode: DisplayMode): void {
+    for (const item of result.items) {
+      if (item.status === 'completed' && item.translated !== undefined) {
+        this.translatedChunks.set(item.id, item.translated);
+        this.itemFailures.delete(item.id);
+      } else {
+        this.itemFailures.set(item.id, item);
+      }
+      const network = this.batches.flatMap((batch) => batch.items).find((entry) => entry.id === item.id);
+      if (network) this.applyDomItemIfReady(network.domItemId, mode);
+    }
+  }
+
+  private recordBatchFailure(
+    batch: BatchDefinition,
+    status: 'failed' | 'interrupted/unknown' | 'cancelled',
+    error: string,
+  ): void {
+    for (const item of batch.items) this.itemFailures.set(item.id, { id: item.id, status, error });
+  }
+
+  private applyDomItemIfReady(domItemId: string, mode: DisplayMode): void {
+    const item = this.domById.get(domItemId);
+    const chunks = this.chunksByDomId.get(domItemId) ?? [];
+    if (!item || chunks.length === 0 || chunks.some((chunk) => !this.translatedChunks.has(chunk.id))) return;
+    const translated = chunks.map((chunk) => this.translatedChunks.get(chunk.id)!).join(' ');
+    if (mode === 'replace') {
+      item.node.textContent = `${item.leadingWhitespace}${translated}${item.trailingWhitespace}`;
+      return;
+    }
+    if (this.bilingualMarkers.some((marker) => marker.dataset.lingualensFor === domItemId)) return;
+    const marker = document.createElement('span');
+    marker.dataset.lingualensTranslation = 'true';
+    marker.dataset.lingualensFor = domItemId;
+    marker.style.cssText = 'color:#1a73e8;margin-left:0.35em;font-size:max(12px,1em)';
+    marker.textContent = translated;
+    item.node.parentNode?.insertBefore(marker, item.node.nextSibling);
+    this.bilingualMarkers.push(marker);
+  }
+
+  private recountProgress(): void {
+    const scheduledIds = this.batches.flatMap((batch) => batch.items.map((item) => item.id));
+    let done = 0;
+    let errors = 0;
+    let unknown = 0;
+    let cancelled = 0;
+    for (const id of scheduledIds) {
+      if (this.translatedChunks.has(id)) done++;
+      else {
+        const failure = this.itemFailures.get(id);
+        if (failure?.status === 'interrupted/unknown') unknown++;
+        else if (failure?.status === 'cancelled') cancelled++;
+        else if (failure) errors++;
       }
     }
+    this.progress = {
+      total: scheduledIds.length,
+      pending: Math.max(0, scheduledIds.length - done - errors - unknown - cancelled),
+      done,
+      errors,
+      unknown,
+      cancelled,
+    };
+  }
+
+  private async control(action: 'pause' | 'resume' | 'cancel' | 'restore'): Promise<void> {
+    await browser.runtime.sendMessage({
+      type: 'TASK_CONTROL',
+      payload: { taskId: this.taskId, sessionId: this.sessionId, action },
+    }).catch(() => undefined);
   }
 
   private removeBilingualMarkers(): void {
-    for (const el of this.bilingualInserted) {
-      el.remove();
-    }
-    this.bilingualInserted = [];
+    for (const marker of this.bilingualMarkers) marker.remove();
+    this.bilingualMarkers = [];
   }
 
-  private applyTranslation(segment: TextSegment, translated: string, mode: DisplayMode): void {
-    if (segment.subSegments && segment.subSegments.length > 1) {
-      const parts = this.splitTranslationForSubSegments(translated, segment.subSegments.map((s) => s.textLen));
-      for (let i = 0; i < segment.subSegments.length; i++) {
-        const sub = segment.subSegments[i];
-        const part = parts[i] ?? '';
-        this.applyToNodes(sub.textNodes, part, mode);
-      }
-      return;
-    }
-
-    this.applyToNodes(segment.textNodes, translated, mode);
-  }
-
-  private applyToNodes(textNodes: Text[], translated: string, mode: DisplayMode): void {
-    if (mode === 'replace') {
-      if (textNodes.length > 0) {
-        textNodes[0].textContent = translated;
-        for (let i = 1; i < textNodes.length; i++) {
-          textNodes[i].textContent = '';
-        }
-      }
-    } else {
-      const marker = document.createElement('div');
-      marker.className = 'st-translated';
-      marker.style.cssText = 'display:block;color:#1a73e8;margin:4px 0 0;font-size:max(12px,1em)';
-      marker.textContent = translated;
-      const lastNode = textNodes[textNodes.length - 1];
-      if (this.insertMarkerAfterText(lastNode, marker)) {
-        this.bilingualInserted.push(marker);
-      }
-    }
-  }
-
-  private static INLINE_TAGS = new Set([
-    'A', 'ABBR', 'ACRONYM', 'B', 'BDO', 'BIG', 'CITE', 'CODE',
-    'DFN', 'EM', 'FONT', 'I', 'IMG', 'KBD', 'LABEL', 'MARK',
-    'Q', 'S', 'SAMP', 'SMALL', 'SPAN', 'STRIKE', 'STRONG',
-    'SUB', 'SUP', 'TIME', 'TT', 'U', 'VAR', 'WBR',
-  ]);
-
-  /**
-   * Keep markers inside the original container. Inline-wrapped text should place
-   * the marker after the highest inline ancestor; direct block text can insert
-   * after the text node itself.
-   */
-  private insertMarkerAfterText(node: Text, marker: HTMLElement): boolean {
-    let current = node.parentElement;
-    if (!current) return false;
-
-    if (!PageTranslateEngine.INLINE_TAGS.has(current.tagName)) {
-      current.insertBefore(marker, node.nextSibling);
-      return true;
-    }
-
-    while (current.parentElement && PageTranslateEngine.INLINE_TAGS.has(current.parentElement.tagName)) {
-      current = current.parentElement;
-    }
-
-    current.insertAdjacentElement('afterend', marker);
-    return true;
-  }
-
-  /**
-   * Split a translated string proportionally based on original sub-segment lengths.
-   * Uses newlines as natural split points when available, otherwise splits proportionally.
-   */
-  private splitTranslationForSubSegments(translated: string, lengths: number[]): string[] {
-    const lines = translated.split('\n');
-    if (lines.length === lengths.length) {
-      return lines.map((l) => l.trim());
-    }
-
-    const totalLen = lengths.reduce((a, b) => a + b, 0);
-    const parts: string[] = [];
-    let cursor = 0;
-    for (let i = 0; i < lengths.length; i++) {
-      const ratio = lengths[i] / totalLen;
-      const partLen = i === lengths.length - 1
-        ? translated.length - cursor
-        : Math.round(translated.length * ratio);
-      parts.push(translated.slice(cursor, cursor + partLen).trim());
-      cursor += partLen;
-    }
-    return parts;
+  private resetTaskState(): void {
+    this.translatedChunks.clear();
+    this.itemFailures.clear();
+    this.chunksByDomId.clear();
+    this.batches = [];
+    this.taskId = '';
+    this.progress = { total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0 };
   }
 }
