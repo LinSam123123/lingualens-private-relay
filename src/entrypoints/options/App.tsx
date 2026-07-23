@@ -294,11 +294,15 @@ function NumberField({ label, value, min, max, onChange }: { label: string; valu
 }
 
 function Diagnostic({ result }: { result: ConnectionTestResult }) {
+  const { t } = useTranslation();
   const rows = [
     ['Reachable', result.reachable],
     ['Authenticated', result.authenticated],
     ['Model', result.modelAvailable],
     ['Format', result.formatCompatible],
   ];
-  return <div className="mt-4 border border-gray-200 rounded-md p-3 text-sm"><div className="grid grid-cols-2 gap-2">{rows.map(([label, value]) => <div key={String(label)} className="flex justify-between gap-2"><span className="text-gray-500">{label}</span><strong className={value === true ? 'text-green-700' : value === false ? 'text-red-700' : 'text-gray-500'}>{value === null ? 'N/A' : value ? 'OK' : 'Failed'}</strong></div>)}</div><p className="mt-3 text-gray-700 break-words">HTTP {result.httpStatus ?? 'N/A'}: {result.message}</p>{result.sample && <p className="mt-1 text-gray-500 break-words">{result.sample}</p>}</div>;
+  const message = result.message === 'REDIRECT_NOT_ALLOWED'
+    ? t('options.redirectNotAllowed')
+    : result.message;
+  return <div className="mt-4 border border-gray-200 rounded-md p-3 text-sm"><div className="grid grid-cols-2 gap-2">{rows.map(([label, value]) => <div key={String(label)} className="flex justify-between gap-2"><span className="text-gray-500">{label}</span><strong className={value === true ? 'text-green-700' : value === false ? 'text-red-700' : 'text-gray-500'}>{value === null ? 'N/A' : value ? 'OK' : 'Failed'}</strong></div>)}</div><p className="mt-3 text-gray-700 break-words">HTTP {result.httpStatus ?? 'N/A'}: {message}</p>{result.sample && <p className="mt-1 text-gray-500 break-words">{result.sample}</p>}</div>;
 }

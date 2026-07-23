@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
@@ -37,4 +38,13 @@ test('builds protocol-specific bodies without structured-output parameters', () 
   assert.equal(responses.instructions, 'system');
   assert.equal(responses.input, '{}');
   assert.equal('text' in responses, false);
+});
+
+test('redirect diagnostics instruct users to enter the final Base URL', async () => {
+  const [english, chinese] = await Promise.all([
+    readFile(new URL('../src/locales/en.json', import.meta.url), 'utf8').then(JSON.parse),
+    readFile(new URL('../src/locales/zh-CN.json', import.meta.url), 'utf8').then(JSON.parse),
+  ]);
+  assert.match(english.options.redirectNotAllowed, /final Base URL/i);
+  assert.match(chinese.options.redirectNotAllowed, /\u6700\u7ec8 Base URL/);
 });

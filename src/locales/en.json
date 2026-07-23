@@ -58,6 +58,7 @@
     "clearCache": "Clear session cache",
     "cacheCleared": "Session translation cache cleared",
     "testing": "Testing...",
+    "redirectNotAllowed": "The relay redirected the request or returned an unconfirmable redirect. Enter the final Base URL that does not redirect, then save and test again.",
     "saveBeforeDiagnostics": "Save and authorize changes before running diagnostics.",
     "translationLimits": "Translation limits",
     "timeout": "Timeout (seconds)",
