@@ -290,10 +290,12 @@
   z-index: 2147483646;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 13px;
+  min-height: 40px;
+  overflow-x: auto;
 }
 
 .st-status-left {
-  @apply flex items-center gap-[8px];
+  @apply flex items-center gap-[8px] shrink-0;
 }
 
 .st-status-icon {
@@ -332,6 +334,14 @@
   @apply text-red-400;
 }
 
+.st-status-unknown {
+  @apply text-amber-600;
+}
+
+.st-status-muted {
+  @apply text-gray-400;
+}
+
 .st-status-progress {
   @apply flex-1 h-[6px] bg-gray-100 rounded-full overflow-hidden min-w-[80px] max-w-[300px];
 }
@@ -342,7 +352,7 @@
 }
 
 .st-status-actions {
-  @apply flex items-center gap-[8px] ml-auto;
+  @apply flex items-center gap-[8px] ml-auto shrink-0;
 }
 
 .st-status-btn {
@@ -353,6 +363,10 @@
 
 .st-status-btn-warn {
   @apply text-red-500 border-red-200 hover:bg-red-50;
+}
+
+.st-status-btn-unknown {
+  @apply text-amber-700 border-amber-300 hover:bg-amber-50;
 }
 
 .st-status-btn-icon {

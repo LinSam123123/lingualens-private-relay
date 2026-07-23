@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AppSettings, MessageResponse, SelectionTriggerMode, SelectionModifierKey } from '../../shared/types';
-import { PageTranslateEngine, type TranslateProgress, type DisplayMode } from '../../content/page-translator/engine';
+import { PageTranslateEngine, type TranslateProgress, type DisplayMode, type PageTranslateOptions } from '../../content/page-translator/engine';
 import { StatusBar } from '../../content/page-translator/StatusBar';
 import { AppLogo } from '../../shared/AppLogo';
 import { computeTriggerPosition } from '../../content/trigger-position';
@@ -25,7 +25,9 @@ function notifyPageTranslatePhase(phase: PageTranslatePhase) {
 
 function phaseAfterPageTranslateEnds(progress: TranslateProgress | null): PageTranslatePhase {
   if (!progress) return 'idle';
-  return (progress.done > 0 || progress.errors > 0) ? 'done' : 'idle';
+  return (progress.done > 0 || progress.errors > 0 || progress.unknown > 0 || progress.cancelled > 0)
+    ? 'done'
+    : 'idle';
 }
 
 export interface ContentAppHandle {
@@ -163,22 +165,11 @@ export function ContentApp({ onReady }: Props) {
     showToast(key);
   };
 
-  const switchProvider = async (providerId: string) => {
-    if (!settings || providerId === settings.defaultProvider) return;
-    const nextFallback = settings.fallbackProviders.filter((id) => id !== providerId);
-    const next = { ...settings, defaultProvider: providerId, fallbackProviders: nextFallback };
-    setSettings(next);
-    await browser.runtime.sendMessage({
-      type: 'SAVE_SETTINGS',
-      payload: { defaultProvider: providerId, fallbackProviders: nextFallback },
-    });
-    await doTranslate();
-  };
-
   // Page translation state
   const [pageTranslatePhase, setPageTranslatePhase] = useState<PageTranslatePhase>('idle');
   const [pageProgress, setPageProgress] = useState<TranslateProgress | null>(null);
   const [displayMode, setDisplayMode] = useState<DisplayMode>('bilingual');
+  const [pagePaused, setPagePaused] = useState(false);
   const [statusCollapsed, setStatusCollapsed] = useState(false);
 
   const [toastText, setToastText] = useState<string | null>(null);
@@ -234,6 +225,7 @@ export function ContentApp({ onReady }: Props) {
     if (engine.running || pageTranslatePhaseRef.current !== 'idle') return;
 
     applyPageTranslatePhase('running');
+    setPagePaused(false);
     setMode('hidden');
     const initial: TranslateProgress = {
       total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0,
@@ -264,14 +256,58 @@ export function ContentApp({ onReady }: Props) {
 
   const stopPageTranslation = () => {
     void engineRef.current.cancel();
-    finishPageTranslateSession(pageProgressRef.current);
+    setPagePaused(false);
+    const current = pageProgressRef.current;
+    if (current) {
+      const cancelled = { ...current, cancelled: current.cancelled + current.pending, pending: 0 };
+      pageProgressRef.current = cancelled;
+      setPageProgress(cancelled);
+    }
+    applyPageTranslatePhase('done');
   };
 
   const restorePageTranslation = () => {
     void engineRef.current.restore();
+    setPagePaused(false);
     pageProgressRef.current = null;
     setPageProgress(null);
     applyPageTranslatePhase('idle');
+  };
+
+  const pausePageTranslation = () => {
+    void engineRef.current.pause().then(() => setPagePaused(true));
+  };
+
+  const resumePageTranslation = () => {
+    void engineRef.current.resume().then(() => setPagePaused(false));
+  };
+
+  const currentPageOptions = (): PageTranslateOptions => {
+    const current = settingsRef.current;
+    return {
+      targetLang: current?.defaultTargetLang ?? resolveDefaultTargetLang(),
+      sourceLang: current?.defaultSourceLang ?? 'auto',
+      displayMode,
+      maxCharsPerRequest: current?.providers[0]?.maxCharsPerRequest ?? 8_000,
+      maxPageChars: current?.providers[0]?.maxPageChars ?? 100_000,
+      maxPageRequests: current?.providers[0]?.maxPageRequests ?? 100,
+    };
+  };
+
+  const retryPageItems = async (kind: 'failed' | 'unknown') => {
+    if (kind === 'unknown' && !window.confirm(t('statusBar.retryUnknownWarning'))) return;
+    applyPageTranslatePhase('running');
+    setPagePaused(false);
+    const onProgress = (progress: TranslateProgress) => {
+      pageProgressRef.current = progress;
+      setPageProgress({ ...progress });
+    };
+    try {
+      if (kind === 'failed') await engineRef.current.retryFailed(currentPageOptions(), onProgress);
+      else await engineRef.current.retryUnknown(currentPageOptions(), onProgress);
+    } finally {
+      finishPageTranslateSession(pageProgressRef.current);
+    }
   };
 
   const toggleDisplayMode = useCallback(() => {
@@ -566,10 +602,15 @@ export function ContentApp({ onReady }: Props) {
       <StatusBar
         progress={pageProgress}
         running={pageTranslatePhase === 'running'}
+        paused={pagePaused}
         displayMode={displayMode}
         collapsed={statusCollapsed}
-        onStop={stopPageTranslation}
+        onPause={pausePageTranslation}
+        onResume={resumePageTranslation}
+        onCancel={stopPageTranslation}
         onRestore={restorePageTranslation}
+        onRetryFailed={() => void retryPageItems('failed')}
+        onRetryUnknown={() => void retryPageItems('unknown')}
         onToggleMode={toggleDisplayMode}
         onToggleCollapse={() => setStatusCollapsed((c) => !c)}
       />
@@ -635,16 +676,9 @@ export function ContentApp({ onReady }: Props) {
             onMouseDown={handlePanelHeaderMouseDown}
           >
             <AppLogo className="st-header-logo" />
-            <select
-              className="st-provider-select"
-              value={settings?.defaultProvider ?? ''}
-              onChange={(e) => switchProvider(e.target.value)}
-            >
-              {(settings?.providers ?? []).map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-              {!settings && <option value="">—</option>}
-            </select>
+            <span className="st-provider-select">
+              {settings?.providers[0]?.name ?? 'Private Relay'}
+            </span>
             <div className="st-header-actions">
               <div className="st-mode-picker">
                 <button

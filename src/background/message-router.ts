@@ -79,6 +79,9 @@ export async function getSettings(): Promise<AppSettings> {
 export async function saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
   const current = await getSettings();
   const draftKey = partial.providers?.find((provider) => provider.apiKey)?.apiKey;
+  const existingKey = current.keyStorageMode !== partial.keyStorageMode
+    ? await getApiKey(current.keyStorageMode)
+    : '';
   const updated = { ...current, ...partial };
   if (partial.providers) updated.providers = partial.providers;
   const normalized = normalizeSettings(updated);
@@ -87,7 +90,13 @@ export async function saveSettings(partial: Partial<AppSettings>): Promise<AppSe
   if (relay.baseUrl) relay.baseUrl = validateBaseUrl(relay.baseUrl).baseUrl;
   if ((relay.model?.length ?? 0) > 200) throw new Error('MODEL_NAME_TOO_LONG');
   if ((normalized.promptTemplate?.length ?? 0) > 12_000) throw new Error('PROMPT_TOO_LONG');
+  relay.timeoutMs = Math.min(120_000, Math.max(5_000, relay.timeoutMs ?? 25_000));
+  relay.maxConcurrency = Math.min(4, Math.max(1, relay.maxConcurrency ?? 2));
+  relay.maxCharsPerRequest = Math.min(20_000, Math.max(500, relay.maxCharsPerRequest ?? 8_000));
+  relay.maxPageChars = Math.min(1_000_000, Math.max(1_000, relay.maxPageChars ?? 100_000));
+  relay.maxPageRequests = Math.min(1_000, Math.max(1, relay.maxPageRequests ?? 100));
   if (draftKey?.trim()) await saveApiKey(draftKey, normalized.keyStorageMode);
+  else if (existingKey) await saveApiKey(existingKey, normalized.keyStorageMode);
   await browser.storage.local.set({ settings: normalized });
   providerManager.clearCache();
   return normalized;
@@ -203,7 +212,10 @@ async function configuredRelay(): Promise<RelayAdapter> {
 
 async function configuredRelayRuntime(): Promise<{ relay: RelayAdapter; config: ProviderConfig }> {
   const settings = await getSettings();
-  const config = settings.providers[0];
+  const config = {
+    ...settings.providers[0],
+    ...(settings.promptTemplate ? { systemPrompt: settings.promptTemplate } : {}),
+  };
   const relay = providerManager.getProvider({
     ...config,
     apiKey: await getApiKey(settings.keyStorageMode),

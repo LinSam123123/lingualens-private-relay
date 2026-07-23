@@ -1,673 +1,296 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AppSettings, ProviderConfig, MessageResponse, ChunkingMode, SelectionTriggerMode, SelectionModifierKey } from '../../shared/types';
-import { DEFAULT_SETTINGS, SUPPORTED_LANGUAGES, PROVIDER_PRESETS } from '../../shared/constants';
-import { clearOnboardingPending, isOnboardingPending } from '../../shared/onboarding';
-import { isLlmProvider } from '../../providers/thinking';
+import type {
+  AppSettings,
+  ConnectionTestResult,
+  MessageResponse,
+  ModelListResult,
+  ProviderConfig,
+  SecretStatus,
+  SelectionModifierKey,
+  SelectionTriggerMode,
+} from '../../shared/types';
+import {
+  DEFAULT_SETTINGS,
+  DEFAULT_SYSTEM_PROMPT,
+  PRIVATE_RELAY_PROVIDER_ID,
+  SUPPORTED_LANGUAGES,
+} from '../../shared/constants';
 import { AppLogo } from '../../shared/AppLogo';
-import { AVAILABLE_UI_LANGUAGES, setUILanguage, getUILanguage } from '../../shared/i18n';
+import { AVAILABLE_UI_LANGUAGES, getUILanguage, setUILanguage } from '../../shared/i18n';
 import { validateBaseUrl } from '../../shared/url-policy';
 
 export function App() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [secret, setSecret] = useState<SecretStatus>({ hasKey: false, storageMode: 'session' });
+  const [apiKey, setApiKey] = useState('');
+  const [models, setModels] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [verifying, setVerifying] = useState<string | null>(null);
-  const [verifyResults, setVerifyResults] = useState<Record<string, { ok: boolean; msg: string }>>({});
-  const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
-  const [showWelcome, setShowWelcome] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [diagnostic, setDiagnostic] = useState<ConnectionTestResult | null>(null);
   const [uiLang, setUiLang] = useState(getUILanguage());
-  const welcomeRef = useRef<HTMLDivElement>(null);
   const originalPermissionRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    isOnboardingPending().then(setShowWelcome);
-  }, []);
+  const relay = settings.providers[0] ?? DEFAULT_SETTINGS.providers[0];
 
   useEffect(() => {
-    if (showWelcome) {
-      welcomeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [showWelcome]);
-
-  useEffect(() => {
-    browser.runtime.sendMessage({ type: 'GET_SETTINGS' }).then(
-      (res: MessageResponse<AppSettings>) => {
-        if (res.success) {
-          setSettings(res.data);
-          try {
-            originalPermissionRef.current = res.data.providers[0]?.baseUrl
-              ? validateBaseUrl(res.data.providers[0].baseUrl).permissionOrigin
-              : null;
-          } catch {
-            originalPermissionRef.current = null;
-          }
-          if (res.data.providers.length > 0) {
-            setExpandedProvider(res.data.providers[0].id);
-          }
-        }
-      },
-    );
-  }, []);
-
-  const updateProvider = (id: string, updates: Partial<ProviderConfig>) => {
-    setSettings((s) => ({
-      ...s,
-      providers: s.providers.map((p) => (p.id === id ? { ...p, ...updates } : p)),
-    }));
-    setSaved(false);
-  };
-
-  const addProvider = (type: ProviderConfig['type']) => {
-    const preset = PROVIDER_PRESETS[type];
-    if (!preset) return;
-    const id = `${type}-${Date.now()}`;
-    const newProvider: ProviderConfig = {
-      ...preset,
-      id,
-      enabled: true,
-      ...(isLlmProvider(type) ? { disableThinking: true } : {}),
-    };
-    setSettings((s) => ({ ...s, providers: [...s.providers, newProvider] }));
-    setExpandedProvider(id);
-    setSaved(false);
-  };
-
-  const setDefaultProvider = (id: string) => {
-    setSettings((s) => ({
-      ...s,
-      defaultProvider: id,
-      fallbackProviders: s.fallbackProviders.filter((fid) => fid !== id),
-    }));
-    setSaved(false);
-  };
-
-  const removeProvider = (id: string) => {
-    setSettings((s) => {
-      const providers = s.providers.filter((p) => p.id !== id);
-      let defaultProvider = s.defaultProvider;
-      let fallbackProviders = s.fallbackProviders.filter((fid) => fid !== id);
-      if (s.defaultProvider === id) {
-        defaultProvider = providers[0]?.id ?? '';
-        if (defaultProvider) {
-          fallbackProviders = fallbackProviders.filter((fid) => fid !== defaultProvider);
+    void Promise.all([
+      browser.runtime.sendMessage({ type: 'GET_SETTINGS' }) as Promise<MessageResponse<AppSettings>>,
+      browser.runtime.sendMessage({ type: 'GET_SECRET_STATUS' }) as Promise<MessageResponse<SecretStatus>>,
+    ]).then(([settingsResult, secretResult]) => {
+      if (settingsResult.success) {
+        setSettings(settingsResult.data);
+        const url = settingsResult.data.providers[0]?.baseUrl;
+        try {
+          originalPermissionRef.current = url ? validateBaseUrl(url).permissionOrigin : null;
+        } catch {
+          originalPermissionRef.current = null;
         }
       }
-      return { ...s, providers, defaultProvider, fallbackProviders };
+      if (secretResult.success) setSecret(secretResult.data);
     });
-    setSaved(false);
-  };
+  }, []);
 
-  const addFallbackProvider = (id: string) => {
-    setSettings((s) => ({
-      ...s,
-      fallbackProviders: [...s.fallbackProviders, id],
+  const updateRelay = (patch: Partial<ProviderConfig>) => {
+    setSettings((current) => ({
+      ...current,
+      providers: [{ ...current.providers[0], ...patch }],
+      defaultProvider: PRIVATE_RELAY_PROVIDER_ID,
+      fallbackProviders: [],
     }));
-    setSaved(false);
+    setDirty(true);
+    setNotice(null);
+    setDiagnostic(null);
   };
 
-  const removeFallbackProvider = (id: string) => {
-    setSettings((s) => ({
-      ...s,
-      fallbackProviders: s.fallbackProviders.filter((fid) => fid !== id),
-    }));
-    setSaved(false);
+  const updateSettings = (patch: Partial<AppSettings>) => {
+    setSettings((current) => ({ ...current, ...patch }));
+    setDirty(true);
+    setNotice(null);
   };
 
-  const moveFallbackProvider = (index: number, direction: -1 | 1) => {
-    setSettings((s) => {
-      const next = index + direction;
-      if (next < 0 || next >= s.fallbackProviders.length) return s;
-      const fallbackProviders = [...s.fallbackProviders];
-      [fallbackProviders[index], fallbackProviders[next]] =
-        [fallbackProviders[next], fallbackProviders[index]];
-      return { ...s, fallbackProviders };
-    });
-    setSaved(false);
+  const refreshSecret = async () => {
+    const response: MessageResponse<SecretStatus> = await browser.runtime.sendMessage({ type: 'GET_SECRET_STATUS' });
+    if (response.success) setSecret(response.data);
   };
 
-  const availableFallbackProviders = settings.providers.filter(
-    (p) =>
-      p.enabled &&
-      p.id !== settings.defaultProvider &&
-      !settings.fallbackProviders.includes(p.id),
-  );
-
-  const dismissWelcome = () => {
-    setShowWelcome(false);
-    void clearOnboardingPending();
-  };
-
-  const handleSave = async () => {
-    setSaveError(null);
+  const saveAndAuthorize = async () => {
+    setNotice(null);
     let permissionOrigin: string;
     try {
-      permissionOrigin = validateBaseUrl(settings.providers[0]?.baseUrl ?? '').permissionOrigin;
+      permissionOrigin = validateBaseUrl(relay.baseUrl).permissionOrigin;
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'BASE_URL_INVALID');
+      setNotice({ ok: false, text: error instanceof Error ? error.message : 'BASE_URL_INVALID' });
       return;
     }
 
-    setSaving(true);
     const oldPermission = originalPermissionRef.current;
     let granted = false;
+    setSaving(true);
     try {
       granted = await browser.permissions.request({ origins: [permissionOrigin] });
       if (!granted) throw new Error('HOST_PERMISSION_DENIED');
-
+      const provider = { ...relay, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) };
       const response: MessageResponse<AppSettings> = await browser.runtime.sendMessage({
         type: 'SAVE_SETTINGS',
-        payload: settings,
+        payload: { ...settings, providers: [provider] },
       });
       if (!response.success) throw new Error(response.error);
 
+      let warning = '';
       if (oldPermission && oldPermission !== permissionOrigin) {
         const removed = await browser.permissions.remove({ origins: [oldPermission] });
-        if (!removed) setSaveError('OLD_HOST_PERMISSION_NOT_REMOVED');
+        if (!removed) warning = ' OLD_HOST_PERMISSION_NOT_REMOVED';
       }
       originalPermissionRef.current = permissionOrigin;
       setSettings(response.data);
-      setSaved(true);
-      setShowWelcome(false);
-      void clearOnboardingPending();
-      setTimeout(() => setSaved(false), 2000);
+      setApiKey('');
+      setDirty(false);
+      await refreshSecret();
+      setNotice({ ok: true, text: `${t('options.saved')}${warning}` });
     } catch (error) {
       if (granted && permissionOrigin !== oldPermission) {
         await browser.permissions.remove({ origins: [permissionOrigin] }).catch(() => false);
       }
-      setSaveError(error instanceof Error ? error.message : 'SAVE_FAILED');
+      setNotice({ ok: false, text: error instanceof Error ? error.message : 'SAVE_FAILED' });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleVerify = async (provider: ProviderConfig) => {
-    setVerifying(provider.id);
-    setVerifyResults((r) => ({ ...r, [provider.id]: undefined! }));
+  const refreshModels = async () => {
+    if (loadingModels) return;
+    setLoadingModels(true);
+    setNotice(null);
     try {
-      const res: MessageResponse<string> = await browser.runtime.sendMessage({
-        type: 'VERIFY_CONFIG',
-        payload: { providerConfig: provider },
-      });
-      if (!res) {
-        setVerifyResults((r) => ({ ...r, [provider.id]: { ok: false, msg: t('options.noResponseFromBackground') } }));
-        return;
-      }
-      const result = res.success
-        ? { ok: true, msg: t('options.verifiedResult', { result: res.data }) }
-        : { ok: false, msg: res.error };
-      setVerifyResults((r) => ({ ...r, [provider.id]: result }));
-    } catch (err) {
-      setVerifyResults((r) => ({
-        ...r,
-        [provider.id]: { ok: false, msg: err instanceof Error ? err.message : t('options.verificationFailed') },
-      }));
+      const response: MessageResponse<ModelListResult> = await browser.runtime.sendMessage({ type: 'GET_MODELS' });
+      if (!response.success) throw new Error(response.error);
+      setModels(response.data.models);
+      setNotice({ ok: true, text: `${response.data.models.length} models (HTTP ${response.data.httpStatus})` });
+    } catch (error) {
+      setNotice({ ok: false, text: error instanceof Error ? error.message : 'MODEL_LIST_FAILED' });
     } finally {
-      setVerifying(null);
+      setLoadingModels(false);
     }
   };
 
-  const needsApiKey = (type: ProviderConfig['type']) =>
-    type !== 'ollama';
+  const testConnection = async () => {
+    if (testing) return;
+    setTesting(true);
+    setDiagnostic(null);
+    setNotice(null);
+    try {
+      const response: MessageResponse<ConnectionTestResult> = await browser.runtime.sendMessage({ type: 'TEST_CONNECTION' });
+      if (!response.success) throw new Error(response.error);
+      setDiagnostic(response.data);
+    } catch (error) {
+      setNotice({ ok: false, text: error instanceof Error ? error.message : 'CONNECTION_FAILED' });
+    } finally {
+      setTesting(false);
+    }
+  };
 
-  const needsModel = (type: ProviderConfig['type']) =>
-    ['relay', 'openai-compat', 'ollama', 'openai', 'lmstudio'].includes(type);
-
-  const handleUiLangChange = async (lang: string) => {
-    setUiLang(lang);
-    await setUILanguage(lang);
+  const clearKey = async () => {
+    const response: MessageResponse = await browser.runtime.sendMessage({ type: 'CLEAR_SECRET' });
+    if (!response.success) {
+      setNotice({ ok: false, text: response.error });
+      return;
+    }
+    setApiKey('');
+    await refreshSecret();
+    setNotice({ ok: true, text: t('options.keyCleared') });
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-2xl mx-auto py-10 px-6">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-8">
+      <main className="max-w-3xl mx-auto py-8 px-5">
+        <header className="flex items-center gap-3 mb-7">
           <AppLogo className="w-10 h-10 shrink-0" />
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold text-gray-800">LinguaLens</h1>
-            <p className="text-sm text-gray-400">{t('options.settings')}</p>
+            <p className="text-sm text-gray-500">{t('options.privateRelaySettings')}</p>
           </div>
-        </div>
+        </header>
 
-        {/* UI Language */}
-        <Section title={t('options.uiLanguage')}>
-          <select
-            value={uiLang}
-            onChange={(e) => void handleUiLangChange(e.target.value)}
-            className="input"
-          >
-            {AVAILABLE_UI_LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>{l.name}</option>
-            ))}
-          </select>
+        <Section title={t('options.relayConnection')}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label={t('options.providerName')}>
+              <input className="input" value={relay.name} maxLength={80} onChange={(e) => updateRelay({ name: e.target.value })} />
+            </Field>
+            <Field label={t('options.protocol')}>
+              <select className="input" value={relay.protocol ?? 'chat-completions'} onChange={(e) => updateRelay({ protocol: e.target.value as ProviderConfig['protocol'] })}>
+                <option value="chat-completions">Chat Completions</option>
+                <option value="responses">Responses</option>
+              </select>
+            </Field>
+          </div>
+          <Field label={t('options.apiBaseUrl')}>
+            <input className="input" value={relay.baseUrl} placeholder="https://relay.example.com/v1" onChange={(e) => updateRelay({ baseUrl: e.target.value })} />
+          </Field>
+          <p className="text-xs text-gray-500 mt-2">{t('options.baseUrlPolicy')}</p>
         </Section>
 
-        {/* Language — selection & page translation */}
-        <Section title={t('options.selectionPageTranslation')}>
-          <p className="text-sm text-gray-500 mb-4">
-            {t('options.selectionPageDesc')}
-          </p>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label={t('options.sourceLanguage')}>
-              <select value={settings.defaultSourceLang} onChange={(e) => { setSettings((s) => ({ ...s, defaultSourceLang: e.target.value })); setSaved(false); }} className="input">
-                {SUPPORTED_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+        <Section title={t('options.credentials')}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label={t('options.keyStorage')}>
+              <select className="input" value={settings.keyStorageMode} onChange={(e) => updateSettings({ keyStorageMode: e.target.value as AppSettings['keyStorageMode'] })}>
+                <option value="session">{t('options.keySession')}</option>
+                <option value="local">{t('options.keyLocal')}</option>
               </select>
+            </Field>
+            <Field label={t('options.apiKey')}>
+              <input className="input" type="password" autoComplete="new-password" value={apiKey} placeholder={secret.hasKey ? secret.maskedKey ?? 'Configured' : ''} onChange={(e) => { setApiKey(e.target.value); setDirty(true); }} />
+            </Field>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-xs text-gray-500">{secret.hasKey ? t('options.keyConfigured') : t('options.keyMissing')}</span>
+            {secret.hasKey && <button type="button" className="btn-secondary" onClick={() => void clearKey()}>{t('options.clearKey')}</button>}
+          </div>
+        </Section>
+
+        <Section title={t('options.modelAndDiagnostics')}>
+          <Field label={t('options.model')}>
+            <div className="flex gap-2">
+              <input className="input flex-1" list="relay-models" value={relay.model ?? ''} maxLength={200} onChange={(e) => updateRelay({ model: e.target.value })} />
+              <datalist id="relay-models">{models.map((model) => <option key={model} value={model} />)}</datalist>
+              <button type="button" className="btn-secondary shrink-0" disabled={loadingModels || dirty} onClick={() => void refreshModels()}>{loadingModels ? t('options.loading') : t('options.refreshModels')}</button>
+            </div>
+          </Field>
+          <div className="flex flex-wrap gap-2 mt-4">
+            <button type="button" className="btn-secondary" disabled={testing || dirty} onClick={() => void testConnection()}>{testing ? t('options.testing') : t('options.testConnection')}</button>
+            {dirty && <span className="text-xs text-amber-700 self-center">{t('options.saveBeforeDiagnostics')}</span>}
+          </div>
+          {diagnostic && <Diagnostic result={diagnostic} />}
+        </Section>
+
+        <Section title={t('options.translationLimits')}>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <NumberField label={t('options.timeout')} value={(relay.timeoutMs ?? 25_000) / 1000} min={5} max={120} onChange={(value) => updateRelay({ timeoutMs: value * 1000 })} />
+            <NumberField label={t('options.concurrency')} value={relay.maxConcurrency ?? 2} min={1} max={4} onChange={(value) => updateRelay({ maxConcurrency: value })} />
+            <NumberField label={t('options.batchChars')} value={relay.maxCharsPerRequest ?? 8_000} min={500} max={20_000} onChange={(value) => updateRelay({ maxCharsPerRequest: value })} />
+            <NumberField label={t('options.pageChars')} value={relay.maxPageChars ?? 100_000} min={1_000} max={1_000_000} onChange={(value) => updateRelay({ maxPageChars: value })} />
+            <NumberField label={t('options.pageRequests')} value={relay.maxPageRequests ?? 100} min={1} max={1_000} onChange={(value) => updateRelay({ maxPageRequests: value })} />
+          </div>
+          <label className="mt-5 flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" className="mt-1" checked={relay.retryGatewayErrors === true} onChange={(e) => updateRelay({ retryGatewayErrors: e.target.checked })} />
+            <span><strong className="block text-sm text-gray-700">{t('options.gatewayRetry')}</strong><span className="block text-xs text-gray-500 mt-1">{t('options.gatewayRetryWarning')}</span></span>
+          </label>
+        </Section>
+
+        <Section title={t('options.languagesAndPrompt')}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label={t('options.sourceLanguage')}>
+              <select className="input" value={settings.defaultSourceLang} onChange={(e) => updateSettings({ defaultSourceLang: e.target.value })}>{SUPPORTED_LANGUAGES.map((lang) => <option key={lang.code} value={lang.code}>{lang.name}</option>)}</select>
             </Field>
             <Field label={t('options.targetLanguage')}>
-              <select value={settings.defaultTargetLang} onChange={(e) => { setSettings((s) => ({ ...s, defaultTargetLang: e.target.value })); setSaved(false); }} className="input">
-                {SUPPORTED_LANGUAGES.filter((l) => l.code !== 'auto').map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
-              </select>
+              <select className="input" value={settings.defaultTargetLang} onChange={(e) => updateSettings({ defaultTargetLang: e.target.value })}>{SUPPORTED_LANGUAGES.filter((lang) => lang.code !== 'auto').map((lang) => <option key={lang.code} value={lang.code}>{lang.name}</option>)}</select>
             </Field>
           </div>
-
-          <hr className="my-4 border-gray-200" />
-
-          <Field label={t('options.selectionTriggerMode')}>
-            <p className="text-xs text-gray-400 mb-2">{t('options.selectionTriggerModeDesc')}</p>
-            <div className="space-y-2 mt-1">
-              {([
-                { value: 'icon' as SelectionTriggerMode, labelKey: 'options.triggerModeIcon', descKey: 'options.triggerModeIconDesc' },
-                { value: 'instant' as SelectionTriggerMode, labelKey: 'options.triggerModeInstant', descKey: 'options.triggerModeInstantDesc' },
-                { value: 'modifier' as SelectionTriggerMode, labelKey: 'options.triggerModeModifier', descKey: 'options.triggerModeModifierDesc' },
-                { value: 'off' as SelectionTriggerMode, labelKey: 'options.triggerModeOff', descKey: 'options.triggerModeOffDesc' },
-              ]).map((opt) => (
-                <label key={opt.value} className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="selectionTriggerMode"
-                    checked={settings.selectionTriggerMode === opt.value}
-                    onChange={() => { setSettings((s) => ({ ...s, selectionTriggerMode: opt.value })); setSaved(false); }}
-                    className="mt-0.5 w-4 h-4 text-blue-500 focus:ring-blue-500/40"
-                  />
-                  <div>
-                    <span className="text-sm font-medium text-gray-700">{t(opt.labelKey)}</span>
-                    <p className="text-xs text-gray-400 mt-0.5">{t(opt.descKey)}</p>
-                  </div>
-                </label>
-              ))}
-            </div>
-            {settings.selectionTriggerMode === 'modifier' && (
-              <div className="mt-3 ml-7">
-                <label className="block text-sm font-medium text-gray-500 mb-1.5">{t('options.selectionModifierKey')}</label>
-                <p className="text-xs text-gray-400 mb-2">{t('options.selectionModifierKeyDesc')}</p>
-                <select
-                  value={settings.selectionModifierKey}
-                  onChange={(e) => { setSettings((s) => ({ ...s, selectionModifierKey: e.target.value as SelectionModifierKey })); setSaved(false); }}
-                  className="input w-32"
-                >
-                  {(['ctrl', 'alt', 'shift'] as SelectionModifierKey[]).map((k) => (
-                    <option key={k} value={k}>{k.charAt(0).toUpperCase() + k.slice(1)}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+          <Field label={t('options.promptTemplate')}>
+            <textarea className="input min-h-28 resize-y" maxLength={12_000} value={settings.promptTemplate ?? DEFAULT_SYSTEM_PROMPT} onChange={(e) => updateSettings({ promptTemplate: e.target.value })} />
           </Field>
         </Section>
 
-        {/* Default Provider */}
-        {settings.providers.length > 1 && (
-          <Section title={t('options.defaultProvider')}>
-            <select
-              value={settings.defaultProvider}
-              onChange={(e) => setDefaultProvider(e.target.value)}
-              className="input"
-            >
-              {settings.providers.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} ({t(`providerTypes.${p.type}`)})</option>
-              ))}
-            </select>
-          </Section>
-        )}
-
-        {/* Fallback Providers */}
-        {settings.providers.length > 1 && (
-          <Section title={t('options.fallbackProviders')}>
-            <p className="text-xs text-gray-400 mb-3">
-              {t('options.fallbackDesc')}
-            </p>
-            {settings.fallbackProviders.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-3">{t('options.noFallback')}</p>
-            ) : (
-              <ol className="space-y-2 mb-3">
-                {settings.fallbackProviders.map((id, index) => {
-                  const provider = settings.providers.find((p) => p.id === id);
-                  if (!provider) return null;
-                  return (
-                    <li
-                      key={id}
-                      className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg bg-gray-50"
-                    >
-                      <span className="text-xs text-gray-400 w-5 shrink-0">{index + 1}.</span>
-                      <span className="flex-1 text-sm text-gray-800 truncate">
-                        {provider.name}
-                        <span className="ml-2 text-xs text-gray-400">{t(`providerTypes.${provider.type}`)}</span>
-                      </span>
-                      {!provider.enabled && (
-                        <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded shrink-0">{t('options.disabled')}</span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => moveFallbackProvider(index, -1)}
-                        disabled={index === 0}
-                        className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                        aria-label={t('options.moveUp')}
-                      >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m18 15-6-6-6 6" /></svg>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveFallbackProvider(index, 1)}
-                        disabled={index === settings.fallbackProviders.length - 1}
-                        className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                        aria-label={t('options.moveDown')}
-                      >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeFallbackProvider(id)}
-                        className="p-1 text-red-400 hover:text-red-500"
-                        aria-label={t('options.remove')}
-                      >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-            {availableFallbackProviders.length > 0 && (
-              <select
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) addFallbackProvider(e.target.value);
-                }}
-                className="input"
-              >
-                <option value="">{t('options.addFallback')}</option>
-                {availableFallbackProviders.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name} ({t(`providerTypes.${p.type}`)})</option>
-                ))}
-              </select>
-            )}
-          </Section>
-        )}
-
-        {showWelcome && (
-          <div
-            ref={welcomeRef}
-            className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-5"
-            role="status"
-          >
-            <h2 className="text-base font-semibold text-blue-900">{t('options.welcomeTitle')}</h2>
-            <p className="mt-2 text-sm text-blue-800/90 leading-relaxed">
-              {t('options.welcomeDesc')}
-            </p>
-            <ol className="mt-3 space-y-1.5 text-sm text-blue-900/90 list-decimal list-inside">
-              <li>{t('options.welcomeStep1')}</li>
-              <li dangerouslySetInnerHTML={{ __html: t('options.welcomeStep2') }} />
-              <li dangerouslySetInnerHTML={{ __html: t('options.welcomeStep3') }} />
-            </ol>
-            <button
-              type="button"
-              onClick={dismissWelcome}
-              className="mt-4 text-sm font-medium text-blue-700 hover:text-blue-900"
-            >
-              {t('options.dismiss')}
-            </button>
+        <Section title={t('options.selectionTriggerMode')}>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {(['icon', 'instant', 'modifier', 'off'] as SelectionTriggerMode[]).map((mode) => <label key={mode} className="border border-gray-200 rounded-md p-3 text-sm cursor-pointer"><input type="radio" name="trigger" className="mr-2" checked={settings.selectionTriggerMode === mode} onChange={() => updateSettings({ selectionTriggerMode: mode })} />{t(`options.triggerMode${mode[0].toUpperCase()}${mode.slice(1)}`)}</label>)}
           </div>
-        )}
-
-        {/* Providers */}
-        <Section
-          title={t('options.providers')}
-        >
-          {settings.providers.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-6">{t('options.noProviders')}</p>
-          )}
-          <div className="space-y-3">
-            {settings.providers.map((provider) => {
-              const expanded = expandedProvider === provider.id;
-              return (
-                <div key={provider.id} className="border border-gray-200 rounded-lg overflow-hidden">
-                  {/* Provider header */}
-                  <div
-                    className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
-                    onClick={() => setExpandedProvider(expanded ? null : provider.id)}
-                  >
-                    <label className="flex items-center" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={provider.enabled}
-                        onChange={(e) => updateProvider(provider.id, { enabled: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500/40"
-                      />
-                    </label>
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm font-medium text-gray-800">{provider.name}</span>
-                      <span className="ml-2 text-xs text-gray-400">{t(`providerTypes.${provider.type}`)}</span>
-                    </div>
-                    {settings.defaultProvider === provider.id && (
-                      <span className="text-[10px] font-medium text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">{t('options.default')}</span>
-                    )}
-                    <svg className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
-                  </div>
-
-                  {/* Provider details */}
-                  {expanded && (
-                    <div className="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
-                      <Field label={t('options.providerName')}>
-                        <input type="text" value={provider.name} onChange={(e) => updateProvider(provider.id, { name: e.target.value })} className="input" />
-                      </Field>
-                      <Field label={provider.type === 'lmstudio' ? t('options.serverUrl') : t('options.apiBaseUrl')}>
-                        <input
-                          type="text"
-                          value={provider.baseUrl}
-                          onChange={(e) => updateProvider(provider.id, { baseUrl: e.target.value })}
-                          placeholder={provider.type === 'lmstudio' ? 'http://localhost:1234' : undefined}
-                          className="input font-mono text-xs"
-                        />
-                      </Field>
-                      {provider.type === 'lmstudio' && (
-                        <p className="text-xs text-gray-400 -mt-1" dangerouslySetInnerHTML={{ __html: t('options.lmStudioNote') }} />
-                      )}
-                      {needsApiKey(provider.type) && (
-                        <>
-                          <Field label={t('options.apiKey')}>
-                            <input type="password" value={provider.apiKey || ''} onChange={(e) => updateProvider(provider.id, { apiKey: e.target.value })} placeholder="Enter or replace the API key" className="input font-mono text-xs" autoComplete="off" />
-                          </Field>
-                          <Field label="API key storage">
-                            <select
-                              value={settings.keyStorageMode}
-                              onChange={(e) => setSettings((s) => ({ ...s, keyStorageMode: e.target.value === 'local' ? 'local' : 'session' }))}
-                              className="input"
-                            >
-                              <option value="session">Session (recommended)</option>
-                              <option value="local">Local persistent storage</option>
-                            </select>
-                          </Field>
-                        </>
-                      )}
-                      {needsModel(provider.type) && (
-                        <Field label={t('options.model')}>
-                          <input type="text" value={provider.model || ''} onChange={(e) => updateProvider(provider.id, { model: e.target.value })} placeholder="Model name" className="input font-mono text-xs" />
-                        </Field>
-                      )}
-                      {isLlmProvider(provider.type) && (
-                        <label className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-50 transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={provider.disableThinking !== false}
-                            onChange={(e) => updateProvider(provider.id, { disableThinking: e.target.checked })}
-                            className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500/40"
-                          />
-                          <div>
-                            <span className="text-sm font-medium text-gray-700">{t('options.disableThinking')}</span>
-                            <p className="text-xs text-gray-400 mt-0.5">
-                              {t('options.disableThinkingDesc')}
-                            </p>
-                          </div>
-                        </label>
-                      )}
-                      {provider.type === 'ollama' && (
-                        <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
-                          {t('options.ollamaCorsWarning')} <code className="bg-amber-100 px-1 rounded">OLLAMA_ORIGINS="chrome-extension://*" ollama serve</code>
-                        </p>
-                      )}
-                      <div className="flex items-center gap-3 pt-1 flex-wrap">
-                        <button onClick={() => handleVerify(provider)} disabled={verifying === provider.id} className="px-3 py-1.5 border border-blue-200 bg-blue-50 rounded-lg text-xs text-blue-600 hover:bg-blue-100 disabled:opacity-50 transition-colors">
-                          {verifying === provider.id ? t('options.verifying') : t('options.verifyConfig')}
-                        </button>
-                        {settings.defaultProvider !== provider.id && (
-                          <button onClick={() => setDefaultProvider(provider.id)} className="px-3 py-1.5 text-xs text-blue-500 hover:text-blue-600">{t('options.setAsDefault')}</button>
-                        )}
-                        <button onClick={() => removeProvider(provider.id)} className="px-3 py-1.5 text-xs text-red-400 hover:text-red-500 ml-auto">{t('options.remove')}</button>
-                      </div>
-                      {verifyResults[provider.id] && (
-                        <span className={`text-xs font-medium pt-1 ${verifyResults[provider.id].ok ? 'text-green-600' : 'text-red-500'}`}>{verifyResults[provider.id].msg}</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          {settings.selectionTriggerMode === 'modifier' && <Field label={t('options.selectionModifierKey')}><select className="input max-w-40" value={settings.selectionModifierKey} onChange={(e) => updateSettings({ selectionModifierKey: e.target.value as SelectionModifierKey })}>{(['ctrl', 'alt', 'shift'] as SelectionModifierKey[]).map((key) => <option key={key} value={key}>{key.toUpperCase()}</option>)}</select></Field>}
         </Section>
 
-        {/* Prompt Template */}
-        <Section title={t('options.promptTemplate')}>
-          <p className="text-xs text-gray-400 mb-3">
-            {t('options.promptTemplateDesc')} <code className="bg-gray-100 px-1 rounded">{'{sourceLang}'}</code>, <code className="bg-gray-100 px-1 rounded">{'{targetLang}'}</code>
-          </p>
-          <textarea
-            value={settings.promptTemplate ?? 'You are a professional translator. Translate the following text from {sourceLang} to {targetLang}. Preserve the original formatting, tone, and style. Only output the translated text, nothing else.'}
-            onChange={(e) => { setSettings((s) => ({ ...s, promptTemplate: e.target.value })); setSaved(false); }}
-            rows={4}
-            className="input font-mono text-xs leading-relaxed"
-          />
-          <button
-            onClick={() => { setSettings((s) => ({ ...s, promptTemplate: undefined })); setSaved(false); }}
-            className="mt-2 text-xs text-gray-400 hover:text-gray-600"
-          >
-            {t('options.resetToDefault')}
-          </button>
+        <Section title={t('options.uiLanguage')}>
+          <select className="input" value={uiLang} onChange={(e) => { setUiLang(e.target.value); void setUILanguage(e.target.value); }}>{AVAILABLE_UI_LANGUAGES.map((lang) => <option key={lang.code} value={lang.code}>{lang.name}</option>)}</select>
         </Section>
 
-        {/* Page Translation */}
-        <Section title={t('options.pageTranslation')}>
-          <Field label={t('options.translationStrategy')}>
-            <div className="space-y-2 mt-1">
-              {([
-                { value: 'quality' as ChunkingMode, labelKey: 'options.strategyQuality', descKey: 'options.strategyQualityDesc' },
-                { value: 'speed' as ChunkingMode, labelKey: 'options.strategySpeed', descKey: 'options.strategySpeedDesc' },
-              ]).map((opt) => (
-                <label key={opt.value} className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="chunkingMode"
-                    checked={settings.chunkingMode === opt.value}
-                    onChange={() => { setSettings((s) => ({ ...s, chunkingMode: opt.value })); setSaved(false); }}
-                    className="mt-0.5 w-4 h-4 text-blue-500 focus:ring-blue-500/40"
-                  />
-                  <div>
-                    <span className="text-sm font-medium text-gray-700">{t(opt.labelKey)}</span>
-                    <p className="text-xs text-gray-400 mt-0.5">{t(opt.descKey)}</p>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </Field>
-        </Section>
-
-        {/* Keyboard shortcuts */}
-        <Section title={t('options.keyboardShortcuts')}>
-          <p className="text-sm text-gray-600 leading-relaxed mb-3" dangerouslySetInnerHTML={{ __html: t('options.keyboardShortcutsDesc') }} />
-          <button
-            type="button"
-            onClick={() => browser.tabs.create({ url: 'chrome://extensions/shortcuts' })}
-            className="text-sm font-medium text-blue-600 hover:text-blue-700"
-          >
-            {t('options.openShortcutSettings')}
-          </button>
-        </Section>
-
-        {/* Save */}
-        <div className="flex items-center gap-3 mt-6">
-          <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 rounded-lg text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 disabled:opacity-50 transition-all shadow-sm">
-            {saving ? t('options.saving') : t('options.save')}
-          </button>
-          {saved && (
-            <span className="text-sm font-medium text-green-600 flex items-center gap-1">
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6 9 17l-5-5" /></svg>
-              {t('options.saved')}
-            </span>
-          )}
-          {saveError && <span className="text-sm font-medium text-red-600">{saveError}</span>}
-        </div>
-      </div>
+        {notice && <div className={`mb-4 px-4 py-3 rounded-md text-sm ${notice.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`} role="status">{notice.text}</div>}
+        <button type="button" className="w-full py-3 rounded-md bg-blue-600 text-white font-medium disabled:opacity-50" disabled={saving} onClick={() => void saveAndAuthorize()}>{saving ? t('options.saving') : t('options.saveAndAuthorize')}</button>
+      </main>
     </div>
   );
 }
 
-function AddProviderMenu({ onAdd }: { onAdd: (type: ProviderConfig['type']) => void }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="text-sm text-blue-500 hover:text-blue-600 font-medium"
-      >
-        {t('options.addProvider')}
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-48 z-10">
-          {Object.entries(PROVIDER_PRESETS).map(([key, preset]) => (
-            <button
-              key={key}
-              onClick={() => { onAdd(key as ProviderConfig['type']); setOpen(false); }}
-              className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-600"
-            >
-              {preset.name}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section className="bg-white border border-gray-200 rounded-lg p-5 mb-5"><h2 className="text-base font-semibold text-gray-800 mb-4">{title}</h2>{children}</section>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-500 mb-1.5">{label}</label>
-      {children}
-    </div>
-  );
+  return <label className="block mt-3 first:mt-0"><span className="block text-sm font-medium text-gray-700 mb-1.5">{label}</span>{children}</label>;
+}
+
+function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
+  return <Field label={label}><input className="input" type="number" value={value} min={min} max={max} onChange={(e) => onChange(Number(e.target.value))} /></Field>;
+}
+
+function Diagnostic({ result }: { result: ConnectionTestResult }) {
+  const rows = [
+    ['Reachable', result.reachable],
+    ['Authenticated', result.authenticated],
+    ['Model', result.modelAvailable],
+    ['Format', result.formatCompatible],
+  ];
+  return <div className="mt-4 border border-gray-200 rounded-md p-3 text-sm"><div className="grid grid-cols-2 gap-2">{rows.map(([label, value]) => <div key={String(label)} className="flex justify-between gap-2"><span className="text-gray-500">{label}</span><strong className={value === true ? 'text-green-700' : value === false ? 'text-red-700' : 'text-gray-500'}>{value === null ? 'N/A' : value ? 'OK' : 'Failed'}</strong></div>)}</div><p className="mt-3 text-gray-700 break-words">HTTP {result.httpStatus ?? 'N/A'}: {result.message}</p>{result.sample && <p className="mt-1 text-gray-500 break-words">{result.sample}</p>}</div>;
 }

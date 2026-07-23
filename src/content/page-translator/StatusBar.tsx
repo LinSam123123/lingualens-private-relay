@@ -1,38 +1,51 @@
 import { useTranslation } from 'react-i18next';
-import { type TranslateProgress, type DisplayMode } from './engine';
+import { type DisplayMode, type TranslateProgress } from './engine';
 import { AppLogo } from '../../shared/AppLogo';
 
 interface Props {
   progress: TranslateProgress | null;
   running: boolean;
+  paused: boolean;
   displayMode: DisplayMode;
   collapsed: boolean;
-  onStop: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onCancel: () => void;
   onRestore: () => void;
+  onRetryFailed: () => void;
+  onRetryUnknown: () => void;
   onToggleMode: () => void;
   onToggleCollapse: () => void;
 }
 
-export function StatusBar({ progress, running, displayMode, collapsed, onStop, onRestore, onToggleMode, onToggleCollapse }: Props) {
+export function StatusBar({
+  progress,
+  running,
+  paused,
+  displayMode,
+  collapsed,
+  onPause,
+  onResume,
+  onCancel,
+  onRestore,
+  onRetryFailed,
+  onRetryUnknown,
+  onToggleMode,
+  onToggleCollapse,
+}: Props) {
   const { t } = useTranslation();
-
   if (!progress) return null;
 
-  const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
-  const finished = !running && (progress.done > 0 || progress.errors > 0);
-  const allFailed = finished && progress.done === 0 && progress.errors > 0;
-  // Before extraction finishes, total is still 0 — showing 0/0 (0%) would be misleading.
+  const terminal = progress.done + progress.errors + progress.unknown + progress.cancelled;
+  const percent = progress.total > 0 ? Math.round((terminal / progress.total) * 100) : 0;
   const preparing = running && progress.total === 0;
+  const finished = !running && terminal > 0;
 
   if (collapsed) {
     return (
       <button onClick={onToggleCollapse} className="st-status-collapsed" title={t('statusBar.expand')}>
-        <span className="st-status-collapsed-mark">
-          <AppLogo className="st-status-collapsed-icon" />
-        </span>
-        {running && (
-          <span className="st-status-collapsed-badge">{preparing ? '…' : `${percent}%`}</span>
-        )}
+        <span className="st-status-collapsed-mark"><AppLogo className="st-status-collapsed-icon" /></span>
+        {running && <span className="st-status-collapsed-badge">{preparing ? '...' : `${percent}%`}</span>}
       </button>
     );
   }
@@ -41,52 +54,31 @@ export function StatusBar({ progress, running, displayMode, collapsed, onStop, o
     <div className="st-status-bar">
       <div className="st-status-left">
         <AppLogo className="st-status-icon" />
-        {preparing ? (
-          <span className="st-status-text">{t('statusBar.preparing')}</span>
-        ) : running ? (
-          <span className="st-status-text">
-            {t('statusBar.translatingProgress', { done: progress.done, total: progress.total, percent })}
-            {progress.errors > 0 && <span className="st-status-err"> {t('statusBar.errors', { count: progress.errors })}</span>}
-          </span>
-        ) : allFailed ? (
-          <span className="st-status-text st-status-err">
-            {t('statusBar.allFailed', { count: progress.errors })}
-          </span>
-        ) : finished ? (
-          <span className="st-status-text">
-            {t('statusBar.translatedProgress', { done: progress.done, total: progress.total })}
-            {progress.errors > 0 && <span className="st-status-err"> {t('statusBar.errors', { count: progress.errors })}</span>}
-          </span>
-        ) : null}
+        <span className="st-status-text">
+          {preparing
+            ? t('statusBar.preparing')
+            : t(running ? 'statusBar.translatingProgress' : 'statusBar.translatedProgress', {
+              done: progress.done,
+              total: progress.total,
+              percent,
+            })}
+          {progress.errors > 0 && <span className="st-status-err"> {t('statusBar.errors', { count: progress.errors })}</span>}
+          {progress.unknown > 0 && <span className="st-status-unknown"> {t('statusBar.unknown', { count: progress.unknown })}</span>}
+          {progress.cancelled > 0 && <span className="st-status-muted"> {t('statusBar.cancelledCount', { count: progress.cancelled })}</span>}
+        </span>
       </div>
 
-      {running && !preparing && (
-        <div className="st-status-progress">
-          <div className="st-status-progress-fill" style={{ width: `${percent}%` }} />
-        </div>
-      )}
+      {running && !preparing && <div className="st-status-progress"><div className="st-status-progress-fill" style={{ width: `${percent}%` }} /></div>}
 
       <div className="st-status-actions">
-        {finished && !allFailed && (
-          <button onClick={onToggleMode} className="st-status-btn" title={t('statusBar.switchMode')}>
-            {displayMode === 'bilingual' ? t('statusBar.replace') : t('statusBar.bilingual')}
-          </button>
-        )}
-        {running && (
-          <button onClick={onStop} className="st-status-btn st-status-btn-warn">
-            {t('statusBar.stop')}
-          </button>
-        )}
-        {finished && (
-          <button onClick={onRestore} className="st-status-btn">
-            {t('statusBar.restore')}
-          </button>
-        )}
-        <button onClick={onToggleCollapse} className="st-status-btn-icon" title={t('statusBar.minimize')}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-            <path d="M5 12h14" />
-          </svg>
-        </button>
+        {running && !paused && <button onClick={onPause} className="st-status-btn">{t('statusBar.pause')}</button>}
+        {running && paused && <button onClick={onResume} className="st-status-btn">{t('statusBar.resume')}</button>}
+        {running && <button onClick={onCancel} className="st-status-btn st-status-btn-warn">{t('statusBar.cancel')}</button>}
+        {finished && progress.errors > 0 && <button onClick={onRetryFailed} className="st-status-btn">{t('statusBar.retryFailed')}</button>}
+        {finished && progress.unknown > 0 && <button onClick={onRetryUnknown} className="st-status-btn st-status-btn-unknown">{t('statusBar.retryUnknown')}</button>}
+        {finished && progress.done > 0 && <button onClick={onToggleMode} className="st-status-btn" title={t('statusBar.switchMode')}>{displayMode === 'bilingual' ? t('statusBar.replace') : t('statusBar.bilingual')}</button>}
+        {(running || finished) && <button onClick={onRestore} className="st-status-btn">{t('statusBar.restore')}</button>}
+        <button onClick={onToggleCollapse} className="st-status-btn-icon" title={t('statusBar.minimize')} aria-label={t('statusBar.minimize')}>-</button>
       </div>
     </div>
   );

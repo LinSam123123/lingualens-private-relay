@@ -5,7 +5,6 @@ import { SUPPORTED_LANGUAGES } from '../../shared/constants';
 import { AppLogo } from '../../shared/AppLogo';
 import { getTranslatorLanguages, updateTranslatorLanguages } from '../../shared/translator-languages';
 import { isTranslatableTabUrl } from '../../shared/translatable-tab';
-import { ProviderPicker } from '../../shared/ProviderPicker';
 
 async function openExtensionSidePanel(): Promise<string | null> {
   type ChromeSidePanel = {
@@ -91,20 +90,6 @@ export function App() {
     } else {
       setError(translateError(res.error));
     }
-  };
-
-  const setDefaultProvider = (providerId: string) => {
-    if (!settings) return;
-    const nextFallbackProviders = settings.fallbackProviders.filter((id) => id !== providerId);
-    setSettings({
-      ...settings,
-      defaultProvider: providerId,
-      fallbackProviders: nextFallbackProviders,
-    });
-    void browser.runtime.sendMessage({
-      type: 'SAVE_SETTINGS',
-      payload: { defaultProvider: providerId, fallbackProviders: nextFallbackProviders },
-    });
   };
 
   return (
@@ -327,12 +312,7 @@ export function App() {
       )}
 
       {/* Footer */}
-      <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
-        <ProviderPicker
-          settings={settings}
-          onChange={setDefaultProvider}
-          triggerClassName="max-w-[180px]"
-        />
+      <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-end">
         <button
           type="button"
           onClick={() => browser.runtime.openOptionsPage()}

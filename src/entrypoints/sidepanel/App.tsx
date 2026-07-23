@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import type { AppSettings, TranslateResult, MessageResponse } from '../../shared/types';
 import { SUPPORTED_LANGUAGES } from '../../shared/constants';
 import { getTranslatorLanguages, setTranslatorLanguages, subscribeTranslatorLanguages } from '../../shared/translator-languages';
-import { ProviderPicker } from '../../shared/ProviderPicker';
 
 interface HistoryEntry {
   id: number;
@@ -25,7 +24,6 @@ export function App() {
   const translateError = (err: string | undefined): string =>
     err ? (ERROR_KEYS[err] ? t(ERROR_KEYS[err]) : err) : t('sidepanel.translationFailed');
 
-  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [sourceLang, setSourceLang] = useState<string | null>(null);
   const [targetLang, setTargetLang] = useState<string | null>(null);
   const langsReady = sourceLang !== null && targetLang !== null;
@@ -61,7 +59,6 @@ export function App() {
   useEffect(() => {
     browser.runtime.sendMessage({ type: 'GET_SETTINGS' }).then(
       async (res: MessageResponse<AppSettings>) => {
-        if (res.success) setSettings(res.data);
         const langs = await getTranslatorLanguages(
           res.success
             ? { sourceLang: res.data.defaultSourceLang, targetLang: res.data.defaultTargetLang }
@@ -71,7 +68,7 @@ export function App() {
         setTargetLang(langs.targetLang);
       },
     );
-    browser.storage.local.get('translationHistory').then((result) => {
+    browser.storage.session.get('translationHistory').then((result) => {
       if (result.translationHistory) setHistory(result.translationHistory as HistoryEntry[]);
     });
 
@@ -115,14 +112,14 @@ export function App() {
       const updated = [entry, ...deduplicated].slice(0, 50);
       setHistory(updated);
       try {
-        await browser.storage.local.set({ translationHistory: updated });
+        await browser.storage.session.set({ translationHistory: updated });
       } catch (err) {
         if (err instanceof Error && /quota/i.test(err.message)) {
           // Quota exceeded — keep only the most recent half
           const trimmed = updated.slice(0, Math.max(1, Math.floor(updated.length / 2)));
           setHistory(trimmed);
           try {
-            await browser.storage.local.set({ translationHistory: trimmed });
+            await browser.storage.session.set({ translationHistory: trimmed });
           } catch {
             // Give up — in-memory history still works this session
           }
@@ -153,20 +150,6 @@ export function App() {
       targetLang: entry.targetLang,
     });
     setShowHistory(false);
-  };
-
-  const setDefaultProvider = (providerId: string) => {
-    if (!settings) return;
-    const nextFallbackProviders = settings.fallbackProviders.filter((id) => id !== providerId);
-    setSettings({
-      ...settings,
-      defaultProvider: providerId,
-      fallbackProviders: nextFallbackProviders,
-    });
-    void browser.runtime.sendMessage({
-      type: 'SAVE_SETTINGS',
-      payload: { defaultProvider: providerId, fallbackProviders: nextFallbackProviders },
-    });
   };
 
   return (
@@ -214,7 +197,7 @@ export function App() {
       {/* Main content */}
       <div ref={contentRef} className="flex-1 flex flex-col overflow-hidden">
         {showHistory ? (
-          <HistoryPanel history={history} onSelect={loadHistoryEntry} onClear={() => { setHistory([]); browser.storage.local.remove('translationHistory'); }} onBack={() => setShowHistory(false)} />
+          <HistoryPanel history={history} onSelect={loadHistoryEntry} onClear={() => { setHistory([]); browser.storage.session.remove('translationHistory'); }} onBack={() => setShowHistory(false)} />
         ) : (
           <>
             {/* Source */}
@@ -306,14 +289,7 @@ export function App() {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100">
-        <div className="min-w-0 flex-1">
-          <ProviderPicker
-            settings={settings}
-            onChange={setDefaultProvider}
-            triggerClassName="max-w-full"
-          />
-        </div>
+      <div className="flex items-center justify-end px-4 py-2 border-t border-gray-100">
         <div className="flex items-center gap-3 shrink-0">
           <button
             onClick={() => setShowHistory((v) => !v)}
