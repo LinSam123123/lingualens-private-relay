@@ -14,7 +14,7 @@ export interface TranslateResult {
 
 export interface ProviderConfig {
   id: string;
-  type: 'openai-compat' | 'ollama' | 'openai' | 'lmstudio' | 'deepl' | 'google' | 'custom';
+  type: 'relay' | 'openai-compat' | 'ollama' | 'openai' | 'lmstudio' | 'deepl' | 'google' | 'custom';
   name: string;
   enabled: boolean;
   baseUrl: string;
@@ -24,6 +24,31 @@ export interface ProviderConfig {
   systemPrompt?: string;
   /** LLM providers only. Default true — skip chain-of-thought for faster translation. */
   disableThinking?: boolean;
+  protocol?: RelayProtocol;
+  temperature?: number;
+  timeoutMs?: number;
+  maxConcurrency?: number;
+  maxCharsPerRequest?: number;
+  maxPageChars?: number;
+  maxPageRequests?: number;
+  retryGatewayErrors?: boolean;
+}
+
+export type RelayProtocol = 'chat-completions' | 'responses';
+
+export interface ConnectionTestResult {
+  reachable: boolean;
+  authenticated: boolean;
+  modelAvailable: boolean | null;
+  formatCompatible: boolean;
+  httpStatus: number | null;
+  message: string;
+  sample?: string;
+}
+
+export interface ModelListResult {
+  models: string[];
+  httpStatus: number;
 }
 
 export type ChunkingMode = 'quality' | 'speed';
@@ -62,6 +87,8 @@ export type MessageType =
   | { type: 'VERIFY_CONFIG'; payload: { providerConfig: ProviderConfig } }
   | { type: 'GET_SETTINGS' }
   | { type: 'GET_SECRET_STATUS' }
+  | { type: 'GET_MODELS' }
+  | { type: 'TEST_CONNECTION' }
   | { type: 'SAVE_SETTINGS'; payload: Partial<AppSettings> }
   | { type: 'UPDATE_RUNTIME_SETTINGS'; payload: RuntimeSettingsPatch }
   | { type: 'CLEAR_SECRET' };

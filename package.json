@@ -15,6 +15,7 @@
     "build:firefox": "wxt build --browser firefox",
     "zip": "wxt zip",
     "test:security": "node --experimental-strip-types --test tests/security.test.mjs",
+    "test:relay": "node --experimental-strip-types --test tests/relay.test.mjs",
     "postinstall": "wxt prepare"
   },
   "dependencies": {

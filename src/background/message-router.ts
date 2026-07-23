@@ -1,6 +1,14 @@
 import { ProviderManager } from '../providers/manager';
 import { getCached, setCache, clearCache as clearTranslationCache, getCacheStats } from './cache';
-import type { AppSettings, ProviderConfig, TranslateRequest, MessageResponse, TranslateResult } from '../shared/types';
+import type {
+  AppSettings,
+  ConnectionTestResult,
+  ModelListResult,
+  ProviderConfig,
+  TranslateRequest,
+  MessageResponse,
+  TranslateResult,
+} from '../shared/types';
 import { DEFAULT_SETTINGS, PRIVATE_RELAY_PROVIDER_ID } from '../shared/constants';
 import { clearApiKey, getApiKey, getSecretStatus, saveApiKey } from './secret-store';
 import { validateBaseUrl } from '../shared/url-policy';
@@ -10,8 +18,18 @@ import {
   isTranslateRequest,
   type RuntimeSenderLike,
 } from './message-policy';
+import { RelayAdapter } from '../providers/relay';
 
 const providerManager = new ProviderManager();
+const diagnosticLocks = new Map<string, Promise<unknown>>();
+
+function singleFlight<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const active = diagnosticLocks.get(key);
+  if (active) return active as Promise<T>;
+  const promise = operation().finally(() => diagnosticLocks.delete(key));
+  diagnosticLocks.set(key, promise);
+  return promise;
+}
 
 function stripSecrets(config: ProviderConfig): ProviderConfig {
   const { apiKey: _apiKey, ...publicConfig } = config;
@@ -20,14 +38,18 @@ function stripSecrets(config: ProviderConfig): ProviderConfig {
 
 function normalizeSettings(settings: AppSettings): AppSettings {
   const configuredRelay = settings.providers?.find(
-    (provider) => provider.id === PRIVATE_RELAY_PROVIDER_ID && provider.type === 'openai-compat',
+    (provider) => provider.id === PRIVATE_RELAY_PROVIDER_ID
+      && (provider.type === 'relay' || provider.type === 'openai-compat'),
   );
-  const relay = stripSecrets(configuredRelay ?? DEFAULT_SETTINGS.providers[0]);
+  const relay = stripSecrets({
+    ...DEFAULT_SETTINGS.providers[0],
+    ...(configuredRelay ?? {}),
+  } as ProviderConfig);
   return {
     ...settings,
     defaultProvider: PRIVATE_RELAY_PROVIDER_ID,
     fallbackProviders: [],
-    providers: [{ ...relay, id: PRIVATE_RELAY_PROVIDER_ID, type: 'openai-compat', enabled: true }],
+    providers: [{ ...relay, id: PRIVATE_RELAY_PROVIDER_ID, type: 'relay', enabled: true }],
     keyStorageMode: settings.keyStorageMode === 'local' ? 'local' : 'session',
   };
 }
@@ -140,7 +162,7 @@ export async function handleVerifyConfig(
   providerConfig: ProviderConfig,
 ): Promise<MessageResponse<string>> {
   try {
-    if (providerConfig.id !== PRIVATE_RELAY_PROVIDER_ID || providerConfig.type !== 'openai-compat') {
+    if (providerConfig.id !== PRIVATE_RELAY_PROVIDER_ID || providerConfig.type !== 'relay') {
       return { success: false, error: 'RELAY_PROVIDER_REQUIRED' };
     }
     validateBaseUrl(providerConfig.baseUrl);
@@ -158,6 +180,35 @@ export async function handleVerifyConfig(
     return { success: true, data: result.translated };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Verification failed' };
+  }
+}
+
+async function configuredRelay(): Promise<RelayAdapter> {
+  const settings = await getSettings();
+  const config = settings.providers[0];
+  return providerManager.getProvider({
+    ...config,
+    apiKey: await getApiKey(settings.keyStorageMode),
+  }, { useCache: false }) as RelayAdapter;
+}
+
+async function handleGetModels(): Promise<MessageResponse<ModelListResult>> {
+  try {
+    const relay = await configuredRelay();
+    const data = await singleFlight('models', () => relay.getModels('manual'));
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'MODEL_LIST_FAILED' };
+  }
+}
+
+async function handleTestConnection(): Promise<MessageResponse<ConnectionTestResult>> {
+  try {
+    const relay = await configuredRelay();
+    const data = await singleFlight('connection-test', () => relay.testConnectionDetailed());
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'CONNECTION_FAILED' };
   }
 }
 
@@ -182,6 +233,12 @@ export async function handleMessage(
       const settings = await getSettings();
       return { success: true, data: await getSecretStatus(settings.keyStorageMode) };
     }
+    case 'GET_MODELS':
+      if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
+      return handleGetModels();
+    case 'TEST_CONNECTION':
+      if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
+      return handleTestConnection();
     case 'SAVE_SETTINGS': {
       if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
       return { success: true, data: await saveSettings(message.payload as Partial<AppSettings>) };

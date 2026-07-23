@@ -213,7 +213,7 @@ export function App() {
     type !== 'ollama';
 
   const needsModel = (type: ProviderConfig['type']) =>
-    ['openai-compat', 'ollama', 'openai', 'lmstudio'].includes(type);
+    ['relay', 'openai-compat', 'ollama', 'openai', 'lmstudio'].includes(type);
 
   const handleUiLangChange = async (lang: string) => {
     setUiLang(lang);

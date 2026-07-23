@@ -1,9 +1,4 @@
-import { OpenAICompatProvider } from './openai-compat';
-import { OllamaProvider } from './ollama';
-import { LmStudioProvider } from './lmstudio';
-import { DeepLProvider } from './deepl';
-import { GoogleTranslateProvider } from './google-translate';
-import { CustomProvider } from './custom';
+import { RelayAdapter } from './relay';
 import { BaseProvider } from './base';
 import type { ProviderConfig } from '../shared/types';
 
@@ -12,21 +7,10 @@ export class ProviderManager {
 
   createProvider(config: ProviderConfig): BaseProvider {
     switch (config.type) {
-      case 'openai-compat':
-      case 'openai':
-        return new OpenAICompatProvider(config);
-      case 'lmstudio':
-        return new LmStudioProvider(config);
-      case 'ollama':
-        return new OllamaProvider(config);
-      case 'deepl':
-        return new DeepLProvider(config);
-      case 'google':
-        return new GoogleTranslateProvider(config);
-      case 'custom':
-        return new CustomProvider(config);
+      case 'relay':
+        return new RelayAdapter(config);
       default:
-        throw new Error(`Unknown provider type: ${config.type}`);
+        throw new Error('RELAY_PROVIDER_REQUIRED');
     }
   }
 
