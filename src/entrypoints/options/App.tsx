@@ -165,6 +165,13 @@ export function App() {
     setNotice({ ok: true, text: t('options.keyCleared') });
   };
 
+  const clearCache = async () => {
+    const response: MessageResponse = await browser.runtime.sendMessage({ type: 'CLEAR_CACHE' });
+    setNotice(response.success
+      ? { ok: true, text: t('options.cacheCleared') }
+      : { ok: false, text: response.error });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="max-w-3xl mx-auto py-8 px-5">
@@ -222,6 +229,7 @@ export function App() {
           </Field>
           <div className="flex flex-wrap gap-2 mt-4">
             <button type="button" className="btn-secondary" disabled={testing || dirty} onClick={() => void testConnection()}>{testing ? t('options.testing') : t('options.testConnection')}</button>
+            <button type="button" className="btn-secondary" onClick={() => void clearCache()}>{t('options.clearCache')}</button>
             {dirty && <span className="text-xs text-amber-700 self-center">{t('options.saveBeforeDiagnostics')}</span>}
           </div>
           {diagnostic && <Diagnostic result={diagnostic} />}

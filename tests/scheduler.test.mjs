@@ -51,6 +51,12 @@ test('retries only explicitly identifiable DNS or connection refusal errors', ()
   assert.equal(classifyRetry(Object.assign(new Error('refused'), { cause: { code: 'ECONNREFUSED' } }), {
     attempt: 2, retryGatewayErrors: false, cancelled: false, timedOut: false,
   }).retry, false);
+  const headerRejected = classifyRetry(httpError(400, 'REQUEST_ID_HEADER_REJECTED'), {
+    attempt: 0, retryGatewayErrors: false, cancelled: false, timedOut: false,
+  });
+  assert.equal(headerRejected.retry, false);
+  assert.equal(headerRejected.terminalStatus, 'failed');
+  assert.equal(headerRejected.code, 'REQUEST_ID_HEADER_REJECTED');
 });
 
 test('checks request and character budgets before dispatch', () => {

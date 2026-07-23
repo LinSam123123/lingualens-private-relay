@@ -55,6 +55,8 @@
     "refreshModels": "Refresh models",
     "loading": "Loading...",
     "testConnection": "Test connection",
+    "clearCache": "Clear session cache",
+    "cacheCleared": "Session translation cache cleared",
     "testing": "Testing...",
     "saveBeforeDiagnostics": "Save and authorize changes before running diagnostics.",
     "translationLimits": "Translation limits",

@@ -63,6 +63,17 @@ function normalizeSettings(settings: AppSettings): AppSettings {
   };
 }
 
+function translationConfigFingerprint(settings: AppSettings): string {
+  const relay = settings.providers[0];
+  return JSON.stringify({
+    baseUrl: relay?.baseUrl ?? '',
+    model: relay?.model ?? '',
+    protocol: relay?.protocol ?? 'chat-completions',
+    temperature: relay?.temperature ?? 0.2,
+    promptTemplate: settings.promptTemplate ?? '',
+  });
+}
+
 export async function getSettings(): Promise<AppSettings> {
   const result = await browser.storage.local.get('settings');
   if (!result.settings) return DEFAULT_SETTINGS;
@@ -78,6 +89,7 @@ export async function getSettings(): Promise<AppSettings> {
 
 export async function saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
   const current = await getSettings();
+  const previousTranslationConfig = translationConfigFingerprint(current);
   const draftKey = partial.providers?.find((provider) => provider.apiKey)?.apiKey;
   const existingKey = current.keyStorageMode !== partial.keyStorageMode
     ? await getApiKey(current.keyStorageMode)
@@ -98,6 +110,9 @@ export async function saveSettings(partial: Partial<AppSettings>): Promise<AppSe
   if (draftKey?.trim()) await saveApiKey(draftKey, normalized.keyStorageMode);
   else if (existingKey) await saveApiKey(existingKey, normalized.keyStorageMode);
   await browser.storage.local.set({ settings: normalized });
+  if (previousTranslationConfig !== translationConfigFingerprint(normalized) || Boolean(draftKey?.trim())) {
+    await clearTranslationCache();
+  }
   providerManager.clearCache();
   return normalized;
 }

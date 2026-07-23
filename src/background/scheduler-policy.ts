@@ -55,14 +55,16 @@ interface HttpLikeError extends Error {
 function explicitNetworkCode(error: unknown): string {
   if (!error || typeof error !== 'object') return '';
   const value = error as { code?: unknown; cause?: { code?: unknown }; message?: unknown };
+  const knownCodes = ['ENOTFOUND', 'ERR_NAME_NOT_RESOLVED', 'ECONNREFUSED', 'ERR_CONNECTION_REFUSED'];
   const code = typeof value.code === 'string'
     ? value.code
     : typeof value.cause?.code === 'string'
       ? value.cause.code
       : '';
-  if (code) return code.toUpperCase();
+  const normalizedCode = code.toUpperCase();
+  if (knownCodes.includes(normalizedCode)) return normalizedCode;
   const message = typeof value.message === 'string' ? value.message.toUpperCase() : '';
-  for (const known of ['ENOTFOUND', 'ERR_NAME_NOT_RESOLVED', 'ECONNREFUSED', 'ERR_CONNECTION_REFUSED']) {
+  for (const known of knownCodes) {
     if (message.includes(known)) return known;
   }
   return '';

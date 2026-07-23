@@ -54,6 +54,8 @@
     "refreshModels": "\u5237\u65b0\u6a21\u578b",
     "loading": "\u52a0\u8f7d\u4e2d...",
     "testConnection": "\u6d4b\u8bd5\u8fde\u63a5",
+    "clearCache": "\u6e05\u9664\u4f1a\u8bdd\u7f13\u5b58",
+    "cacheCleared": "\u4f1a\u8bdd\u7ffb\u8bd1\u7f13\u5b58\u5df2\u6e05\u9664",
     "testing": "\u6d4b\u8bd5\u4e2d...",
     "saveBeforeDiagnostics": "\u8bf7\u5148\u4fdd\u5b58\u5e76\u6388\u6743\u518d\u8fd0\u884c\u8bca\u65ad\u3002",
     "translationLimits": "\u7ffb\u8bd1\u9650\u5236",

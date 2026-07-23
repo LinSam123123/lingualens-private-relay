@@ -1,8 +1,26 @@
 import http from 'node:http';
 import assert from 'node:assert/strict';
 
-const port = Number(process.env.PORT || 17891);
+const selfTest = process.argv.includes('--self-test');
+const port = Number(process.env.PORT || (selfTest ? 0 : 17891));
 const rateLimits = new Map();
+const requestCounts = new Map();
+
+const fixturePage = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>LinguaLens Manual Fixture</title></head>
+<body>
+  <main>
+    <h1>Private relay translation fixture</h1>
+    <p id="plain">This paragraph should be translated as one stable text node.</p>
+    <p id="format">Keep this <a href="#destination">working link</a> and this <strong>bold phrase</strong> intact.</p>
+    <pre id="code">const untranslated = "code block";</pre>
+    <label>Input stays unchanged <input id="input" value="Do not translate this input"></label>
+    <div id="editable" contenteditable="true">Do not translate editable text</div>
+    <p id="destination">The final paragraph verifies restore original behavior.</p>
+  </main>
+</body>
+</html>`;
 
 function json(response, status, body, headers = {}) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...headers });
@@ -33,6 +51,26 @@ const server = http.createServer((request, response) => {
   const parts = url.pathname.split('/').filter(Boolean);
   const scenario = parts[0] || 'ok';
   const endpoint = parts.slice(2).join('/');
+
+  if (url.pathname === '/metrics') {
+    json(response, 200, { requests: Object.fromEntries(requestCounts) });
+    return;
+  }
+  if (url.pathname === '/reset' && request.method === 'POST') {
+    requestCounts.clear();
+    rateLimits.clear();
+    json(response, 200, { reset: true });
+    return;
+  }
+  requestCounts.set(scenario, (requestCounts.get(scenario) || 0) + 1);
+  const endpointKey = `${scenario}:${endpoint || request.method || 'root'}`;
+  requestCounts.set(endpointKey, (requestCounts.get(endpointKey) || 0) + 1);
+
+  if (url.pathname === '/fixture') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(fixturePage);
+    return;
+  }
 
   if (scenario === 'redirect') {
     response.writeHead(307, { Location: `/ok/v1/${endpoint}` });
@@ -81,11 +119,13 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(port, '127.0.0.1', async () => {
-  console.log(`Mock relay listening on http://127.0.0.1:${port}/ok/v1`);
+  const address = server.address();
+  const activePort = typeof address === 'object' && address ? address.port : port;
+  console.log(`Mock relay listening on http://127.0.0.1:${activePort}/ok/v1`);
   console.log('Scenarios: ok, redirect, rate-limit, gateway, header-rejected, timeout, disconnect');
-  if (!process.argv.includes('--self-test')) return;
+  if (!selfTest) return;
 
-  const base = `http://127.0.0.1:${port}`;
+  const base = `http://127.0.0.1:${activePort}`;
   const headers = { 'Content-Type': 'application/json', 'X-Translation-Request-Id': 'self-test-id' };
   const input = JSON.stringify({ target_language: 'zh-CN', items: [{ id: 'item-1', text: 'hello' }] });
   try {
