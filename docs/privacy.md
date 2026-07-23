@@ -1,53 +1,35 @@
-# LinguaLens Privacy Policy
+# LinguaLens Private Relay Edition: Privacy Notes
 
-**Last updated:** May 20, 2026
+**Last updated:** July 23, 2026
 
-This policy describes how the **LinguaLens** browser extension (“the extension”, “we”) handles information when you use it. LinguaLens is published by Qi Wang. If you have questions, open an issue at [github.com/q-jade/lingualens](https://github.com/q-jade/lingualens).
+This private build has no account system, telemetry, analytics, or project-operated translation server.
 
-## Summary
+## Network data
 
-- LinguaLens **does not run its own translation servers**.
-- Text you choose to translate is sent **only to the translation providers you configure** (for example Ollama on your machine, OpenAI, DeepL, or a custom API URL).
-- Settings and API keys are stored **locally in your browser**, not on our servers.
-- We **do not sell** your data.
+Text translated from selections, the popup, sidepanel, or an explicitly started page snapshot is sent only to the Relay Base URL configured by the user. The API key is sent as a Bearer credential when configured. Translation batches also include a random `X-Translation-Request-Id` containing no page text or account data.
 
-## What data is involved
+The extension does not contact legacy LinguaLens providers at runtime. Model refresh and connection tests contact the same configured Relay and are rate-limited to one active request of each type.
 
-Depending on how you use the extension, the following may be processed:
+## Local data
 
-| Data | Where it goes | Purpose |
-|------|----------------|---------|
-| Text you select, enter in the popup/side panel, or page content you choose to translate | The **provider(s) you enable** in Settings | Translation |
-| Provider settings (base URL, model, API keys, prompts) | **Local browser storage** (`chrome.storage.local` / equivalent) | Configuration |
-| Cached translation results | **Local browser storage** | Faster repeat translations |
-| Recent translations in the side panel | **Local browser storage** | History in the side panel UI |
+| Data | Storage | Retention |
+|---|---|---|
+| Public Relay settings and UI preferences | `storage.local` | Until cleared or uninstalled |
+| API key, default mode | `storage.session` | Current browser session only |
+| API key, optional persistent mode | protected `storage.local` | Until cleared or uninstalled |
+| Translation cache and sidepanel history | `storage.session` | Current browser session only |
+| Task journal | `storage.session` | Same-session SW recovery, with stale-entry cleanup |
 
-We do not operate a central account system or cloud database for your translations.
+Content scripts cannot read or observe extension storage. Settings pages receive only public configuration and a masked Secret status.
 
-## Third-party services
+Task journals contain IDs, status, attempts, character/request budgets, and timestamps. They do not contain webpage source text. `storage.session` recovery does not survive every browser exit, extension reload, update, disable, or page reload.
 
-When you enable a provider, your text and API credentials (if required) are sent to that third party under **their** terms and privacy policies. You are responsible for choosing providers you trust. Examples include OpenAI, DeepSeek, DeepL, Google Cloud Translation, or software you host yourself (Ollama, LM Studio, custom HTTP APIs).
+## Permissions
 
-LinguaLens only initiates requests you trigger through normal use (translate selection, translate page, popup, side panel, keyboard shortcuts, or context menu).
+The extension declares broad optional HTTPS/loopback patterns only so Chrome can present a user-triggered permission request. The settings page requests the validated concrete Relay origin when **Save and authorize host** is clicked and removes the obsolete origin after a successful change.
 
-## Permissions and why they are used
+Content-script access is used for selection and page-snapshot translation. `storage`, `activeTab`, `sidePanel`, `contextMenus`, and `scripting` support the corresponding extension features.
 
-- **Access to websites:** Content scripts run on web pages so the extension can offer selection translation and inline bilingual page translation. Site access is required for those features.
-- **Storage:** Save your settings, API keys, cache, and optional translation history locally.
-- **Other extension permissions** (such as context menus, side panel, scripting, active tab): Operate translation UI and shortcuts as described in the extension listing.
+## Deletion
 
-## Data retention and deletion
-
-Data stored locally remains on your device until you clear extension storage, uninstall the extension, or remove data in the extension UI (for example clearing side panel history). Uninstalling the extension removes locally stored extension data associated with it.
-
-## Children
-
-LinguaLens is not directed at children under 13, and we do not knowingly collect personal information from children.
-
-## Changes
-
-We may update this policy as the extension changes. The “Last updated” date at the top will be revised when we do. Continued use after changes means you accept the updated policy.
-
-## Contact
-
-GitHub issues: [github.com/q-jade/lingualens/issues](https://github.com/q-jade/lingualens/issues)
+Use the settings page to clear the API key and cache. Sidepanel history is session-only. Uninstalling the extension removes its browser-managed local data. Relay operators may retain requests under their own policy; consult the operator of the Relay you configure.

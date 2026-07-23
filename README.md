@@ -1,189 +1,57 @@
-# LinguaLens
+# LinguaLens Private Relay Edition
 
-[![GitHub](https://img.shields.io/github/license/q-jade/lingualens)](LICENSE)
-[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/jpmdhkgjoppnfnnebhmjjnbhpmcploec?label=Chrome%20Web%20Store)](https://chromewebstore.google.com/detail/lingualens/jpmdhkgjoppnfnnebhmjjnbhpmcploec)
-[![Edge Add-ons](https://img.shields.io/badge/dynamic/json?label=Edge%20Add-ons&prefix=v&query=%24.version&url=https%3A%2F%2Fmicrosoftedge.microsoft.com%2Faddons%2Fgetproductdetailsbycrxid%2Fbdpgakpajghfgehcdhknlcacelkgeleo)](https://microsoftedge.microsoft.com/addons/detail/bdpgakpajghfgehcdhknlcacelkgeleo)
+A private Chrome/Edge MV3 build of [q-jade/lingualens](https://github.com/q-jade/lingualens), based on upstream commit `c18d1a5`. The upstream Git history and MIT license are preserved.
 
-**Translate anything on the web** — with local LLMs (Ollama, LM Studio), cloud APIs (OpenAI, DeepSeek, DeepL, Google Translate), or your own HTTP endpoint.
+This edition has one translation backend: a user-configured private Relay exposing an OpenAI-compatible Chat Completions or Responses API. Legacy provider source files remain temporarily for upstream compatibility, but they are unreachable from settings, runtime provider creation, and the production manifest.
 
-LinguaLens is a browser extension built with [WXT](https://wxt.dev/) and React. It adds selection translation, full-page bilingual translation, a popup translator, and a Chrome side panel with history — all routed through a configurable provider chain with caching and automatic fallback.
+## MVP scope
 
-## Features
+- Chrome and Edge Manifest V3
+- Selection, popup, sidepanel, and static page-snapshot translation
+- Chat Completions and Responses protocols
+- Stable item IDs with pure or fenced JSON response parsing
+- 25-second default timeout, concurrency 2, 100,000-character and 100-fetch page budgets
+- Conservative retries and explicit handling of `interrupted/unknown`
+- Session-only translation cache and sidepanel history
+- API key isolation in `storage.session` or protected `storage.local`
+- Exact optional host permission requested by **Save and authorize host**
 
-- **Selection translation** — Select text on any page; a floating trigger appears. Choose from four trigger modes: icon, instant, modifier key, or off. Right-click **Translate** or use the keyboard shortcut for one-step translation. Pin the panel to translate multiple selections without reopening. Switch providers or retry on failure directly from the panel.
-- **Full-page translation** — Inject bilingual translations inline while preserving layout. Choose **Quality** (larger chunks, better context) or **Speed** (smaller chunks, faster updates) in settings.
-- **Multiple providers** — Ollama, LM Studio, OpenAI-compatible APIs, OpenAI, DeepSeek, DeepL, Google Cloud Translation, and a customizable HTTP template. Switch provider from any UI surface — popup, side panel, or the translation panel itself.
-- **Provider fallback** — If the default provider fails, try the next configured provider in order.
-- **Translation cache** — Repeated text is served from an in-memory cache with debounced persistence.
-- **Popup & side panel** — Quick translate from the toolbar popup; open the side panel (Chrome 114+) for a larger UI with session history, back navigation, and draggable layout.
-- **LLM tuning** — Custom system prompt template; optional **disable thinking** for models that emit chain-of-thought (faster, cleaner output).
+Dynamic DOM translation, multiple presets, persistent cache, complete Firefox support, provider source cleanup, and dependency upgrades are intentionally deferred.
 
-## Browser support
-
-| Browser | Status |
-|---------|--------|
-| **Chrome / Edge** (Chromium 114+) | Primary target. Side panel requires Chromium 114+. |
-| **Firefox** | `npm run build:firefox` produces an MV2 build. Side panel is not available; other features should be tested separately. |
-
-Content scripts do **not** run on restricted pages (for example `chrome://`, `edge://`, or the browser extension gallery).
-
-## Install
-
-| Browser | Link |
-|---------|------|
-| Chrome / Chromium | [Chrome Web Store](https://chromewebstore.google.com/detail/lingualens/jpmdhkgjoppnfnnebhmjjnbhpmcploec) |
-| Edge | [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/bdpgakpajghfgehcdhknlcacelkgeleo) |
-
-After installing, click the LinguaLens toolbar icon to open the popup, then go to **Settings** to configure at least one translation provider.
-
-## Quick start (from source)
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) 18+ and npm
-- For the default setup: [Ollama](https://ollama.com/) running locally with a model pulled (e.g. `ollama pull llama3`)
-
-### Clone and run
+## Build
 
 ```bash
-git clone https://github.com/q-jade/lingualens.git
-cd lingualens
 npm install
-npm run dev
+npm run verify
 ```
 
-Load the unpacked extension:
+The unpacked production extension is generated at `.output/chrome-mv3`.
 
-1. Open `chrome://extensions` (or your browser’s equivalent).
-2. Enable **Developer mode**.
-3. Click **Load unpacked** and select the `.output/chrome-mv3-dev` folder (created by `npm run dev`).
-
-For a production build:
-
-```bash
-npm run build          # Chrome MV3 → .output/chrome-mv3
-npm run zip            # Creates .output/lingualens-<version>-chrome.zip
-npm run build:firefox  # Firefox MV2 → .output/firefox-mv2
-```
-
-### First-time configuration
-
-On first install, LinguaLens opens **Settings** automatically. You can also open it anytime via the popup or by right-clicking the toolbar icon → **Options**.
-
-1. In **Settings**, scroll to **Translation Providers** (or use the welcome steps shown on first run).
-2. Under **Providers**, ensure at least one provider is **enabled** (Ollama and LM Studio are added by default).
-3. Set **Base URL** and **Model** if needed, then click **Verify** on that provider.
-4. Choose a **Default provider** and optional **Fallback** order if you use multiple backends.
-5. Click **Save Settings**.
-
-If translation fails with *“No active provider configured”*, enable a provider and save again.
-
-## Usage
-
-### Selection translation
-
-1. Select text on a normal web page (not `chrome://` URLs).
-2. Click the floating LinguaLens trigger, or right-click → **Translate "…"**.
-3. **Shortcut (default):** `Alt+T` — translates the selection directly in the panel.
-
-### Full-page translation
-
-- **Popup:** **Translate This Page**
-- **Shortcut (default):** `Alt+Shift+T`
-- **Context menu:** **Translate This Page** on the page; switches to **Stop Page Translation** while translating and **Restore Original Page** when finished
-
-Use the on-page status bar to stop or restore the original text.
-
-### Popup & side panel
-
-- **Popup** — Enter text, pick target language, translate. Link to **Settings** and **Translate This Page**.
-- **Side panel** — Click **Side panel** in the popup (Chrome 114+). Supports source/target languages, swap, and recent history (stored locally).
-
-### Selection trigger modes
-
-Control how text selection triggers translation. Change the mode from the popup or cycle with `Alt+M`:
-
-| Mode | Behaviour |
-|------|-----------|
-| **Trigger icon** (default) | A floating icon appears near the selection -- click to translate. |
-| **Instant** | Translation starts immediately when text is selected. |
-| **Modifier key** | Select text, then press the configured key (Ctrl / Alt / Shift) alone to translate. |
-| **Off** | No reaction on selection (use `Alt+T` or the context menu). |
-
-### Keyboard shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Alt+T` | Translate selection |
-| `Alt+Shift+T` | Translate entire page |
-| `Alt+M` | Cycle selection trigger mode |
-
-If shortcuts do nothing, open your browser’s extension shortcut settings and assign LinguaLens to a free combination. Reload the tab after installing or updating the extension.
-
-## Supported providers
-
-| Provider | Type | API key | Notes |
-|----------|------|---------|--------|
-| Ollama | Local | No | Default. `http://localhost:11434` |
-| LM Studio | Local | Optional | Native chat API; thinking disabled by default |
-| OpenAI Compatible | Cloud / local | Usually | Any OpenAI-style `/v1/chat/completions` endpoint |
-| OpenAI | Cloud | Yes | `https://api.openai.com/v1` |
-| DeepSeek | Cloud | Yes | Preset uses `https://api.deepseek.com` |
-| DeepL | Cloud | Yes | Free or Pro API base URL |
-| Google Translate | Cloud | Yes | Google Cloud Translation API |
-| Custom API | Any | Optional | Configurable method, headers, body template, JSON response path |
-
-**Host permissions:** The extension manifest allows requests only to declared hosts (localhost, OpenAI, DeepSeek, DeepL, Google, etc.). Custom or self-hosted API URLs outside that list may be blocked by the browser until additional permissions are granted — plan endpoints accordingly.
-
-## Settings reference
-
-- **Language** — Default source (including auto-detect) and target language.
-- **Default provider / Fallback providers** — Primary backend and ordered backups on failure.
-- **Translation prompt template** — System prompt for LLM providers; placeholders `{sourceLang}`, `{targetLang}`.
-- **Page translation** — **Quality** vs **Speed** chunking strategy.
-- **Disable thinking** (LLM providers) — Reduces reasoning output for faster translation (on by default for Ollama/LM Studio).
-
-API keys and settings are stored in **`browser.storage.local`** on your device only; they are not sent to LinguaLens servers (there are none).
+For installation, Relay configuration, retry semantics, data cleanup, mock Relay scenarios, and upstream updates, see [PRIVATE_SETUP.md](PRIVATE_SETUP.md).
 
 ## Development
 
 ```bash
-npm run dev           # Chrome, watch mode
-npm run dev:firefox   # Firefox, watch mode
-npm run build         # Production Chrome build
-npx tsc --noEmit      # Typecheck
+npm run dev
+npm test
+npm run build
+npm run audit:build
+npm run mock-relay
 ```
 
-Project layout:
+The build audit verifies MV3 permissions and scans generated text assets for legacy provider domains, remote scripts, telemetry markers, dynamic code execution, HTML injection APIs, and likely API keys.
 
-```
-src/
-  entrypoints/     # background, content, popup, sidepanel, options
-  providers/       # translation backends
-  content/         # page translation engine
-  background/      # messaging, cache
-  shared/          # types, constants
-```
+## Security model
 
-Stack: WXT, React 19, TypeScript, Tailwind CSS.
+- Content scripts never read or observe extension storage.
+- Background listeners register synchronously and await a single initialization barrier.
+- Background initialization restricts `storage.local` and, when supported, `storage.session` to trusted extension contexts before reading data.
+- Content scripts submit only structured text tasks; Base URL, credentials, and Relay configuration come from protected Background state.
+- Model output is mapped by stable ID and written with `textContent`, never interpreted as HTML.
+- A stable `X-Translation-Request-Id` is sent on each translation batch. It is never silently removed if a proxy rejects it.
 
-## Privacy
-
-See [docs/privacy.md](docs/privacy.md) for the full privacy policy.
-
-For Chrome Web Store and Edge Add-ons, use this public URL after enabling [GitHub Pages](https://docs.github.com/en/pages) for this repository (source: `main`, folder `/docs`):
-
-`https://q-jade.github.io/lingualens/privacy`
-
-LinguaLens does not run its own translation servers; text is sent only to providers you configure. API keys and settings stay in local browser storage.
-
-## Known limitations
-
-- Content scripts cannot run on browser internal pages or the extension store.
-- Very large pages may take time and many API calls when using full-page translation.
-- Firefox build uses Manifest V2; feature parity with Chrome is not guaranteed.
-- Side panel requires Chromium 114+.
+See [docs/privacy.md](docs/privacy.md) for local data and network behavior.
 
 ## License
 
-[MIT](LICENSE) — Copyright (c) 2026 Qi Wang
+[MIT](LICENSE), preserving the upstream copyright notice.

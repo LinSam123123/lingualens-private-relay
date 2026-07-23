@@ -83,7 +83,9 @@ export class RelayAdapter extends BaseProvider {
   ): Promise<Map<string, string>> {
     validateBaseUrl(this.config.baseUrl);
     if (!this.config.model?.trim()) throw new Error('MODEL_REQUIRED');
-    const prompt = (this.config.systemPrompt || RELAY_SYSTEM_PROMPT)
+    const prompt = (this.config.systemPrompt
+      ? `${this.config.systemPrompt}\n\n${RELAY_SYSTEM_PROMPT}`
+      : RELAY_SYSTEM_PROMPT)
       .replaceAll('{sourceLang}', request.sourceLang)
       .replaceAll('{targetLang}', request.targetLang);
     const inputJson = JSON.stringify({
