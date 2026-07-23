@@ -54,32 +54,25 @@ export const PROVIDER_PRESETS: Record<string, Omit<ProviderConfig, 'id' | 'enabl
   },
 };
 
+export const PRIVATE_RELAY_PROVIDER_ID = 'private-relay';
+
 export const DEFAULT_SETTINGS: AppSettings = {
-  defaultProvider: 'ollama',
+  defaultProvider: PRIVATE_RELAY_PROVIDER_ID,
   fallbackProviders: [],
   defaultTargetLang: resolveDefaultTargetLang(),
   defaultSourceLang: 'auto',
   providers: [
     {
-      id: 'ollama',
-      type: 'ollama',
-      name: 'Ollama',
+      id: PRIVATE_RELAY_PROVIDER_ID,
+      type: 'openai-compat',
+      name: 'Private Relay',
       enabled: true,
-      baseUrl: 'http://localhost:11434',
-      model: 'llama3',
-      disableThinking: true,
-    },
-    {
-      id: 'lmstudio',
-      type: 'lmstudio',
-      name: 'LM Studio',
-      enabled: true,
-      baseUrl: 'http://localhost:1234',
+      baseUrl: '',
       model: '',
-      disableThinking: true,
     },
   ],
   chunkingMode: 'quality',
   selectionTriggerMode: 'icon',
   selectionModifierKey: 'ctrl',
+  keyStorageMode: 'session',
 };

@@ -8,15 +8,10 @@ export default defineConfig({
     description: '__MSG_extDescription__',
     default_locale: 'en',
     permissions: ['storage', 'activeTab', 'sidePanel', 'contextMenus', 'scripting'],
-    host_permissions: [
-      // Chrome Web Store rejects `http://localhost:*/*`; omit port to match all local ports.
+    optional_host_permissions: [
+      'https://*/*',
       'http://localhost/*',
       'http://127.0.0.1/*',
-      'https://api.deepseek.com/*',
-      'https://api.openai.com/*',
-      'https://api-free.deepl.com/*',
-      'https://api.deepl.com/*',
-      'https://translation.googleapis.com/*',
     ],
     commands: {
       'translate-selection': {

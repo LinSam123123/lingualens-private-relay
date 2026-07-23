@@ -18,6 +18,7 @@ export interface ProviderConfig {
   name: string;
   enabled: boolean;
   baseUrl: string;
+  /** Draft-only UI field. Persisted settings and runtime responses never contain this value. */
   apiKey?: string;
   model?: string;
   systemPrompt?: string;
@@ -29,6 +30,7 @@ export type ChunkingMode = 'quality' | 'speed';
 
 export type SelectionTriggerMode = 'icon' | 'instant' | 'modifier' | 'off';
 export type SelectionModifierKey = 'ctrl' | 'alt' | 'shift';
+export type SecretStorageMode = 'session' | 'local';
 
 export interface AppSettings {
   defaultProvider: string;
@@ -41,13 +43,28 @@ export interface AppSettings {
   chunkingMode: ChunkingMode;
   selectionTriggerMode: SelectionTriggerMode;
   selectionModifierKey: SelectionModifierKey;
+  keyStorageMode: SecretStorageMode;
+}
+
+export interface SecretStatus {
+  hasKey: boolean;
+  storageMode: SecretStorageMode;
+  maskedKey?: string;
+}
+
+export interface RuntimeSettingsPatch {
+  selectionTriggerMode?: SelectionTriggerMode;
+  selectionModifierKey?: SelectionModifierKey;
 }
 
 export type MessageType =
   | { type: 'TRANSLATE'; payload: TranslateRequest }
   | { type: 'VERIFY_CONFIG'; payload: { providerConfig: ProviderConfig } }
   | { type: 'GET_SETTINGS' }
-  | { type: 'SAVE_SETTINGS'; payload: Partial<AppSettings> };
+  | { type: 'GET_SECRET_STATUS' }
+  | { type: 'SAVE_SETTINGS'; payload: Partial<AppSettings> }
+  | { type: 'UPDATE_RUNTIME_SETTINGS'; payload: RuntimeSettingsPatch }
+  | { type: 'CLEAR_SECRET' };
 
 export type MessageResponse<T = unknown> =
   | { success: true; data: T }

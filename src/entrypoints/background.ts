@@ -6,9 +6,10 @@ import {
 } from '../shared/page-translate-phase';
 import { isTranslatableTabUrl } from '../shared/translatable-tab';
 import type { SelectionTriggerMode } from '../shared/types';
+import { initializationPromise, requireInitialization } from '../background/initialization';
 
 export default defineBackground(() => {
-  registerInstallOnboarding();
+  registerInstallOnboarding(initializationPromise);
   const pageTranslatePhaseByTab = new Map<number, PageTranslatePhase>();
 
   function rememberPageTranslatePhase(tabId: number, phase: PageTranslatePhase): void {
@@ -198,7 +199,12 @@ export default defineBackground(() => {
       .catch(warnTabTranslateUnreachable);
   }
 
-  browser.runtime.onMessage.addListener((message: Record<string, unknown>, sender, sendResponse) => {
+  async function routeRuntimeMessage(
+    message: Record<string, unknown>,
+    sender: Browser.runtime.MessageSender,
+  ): Promise<unknown> {
+    await requireInitialization();
+
     if (message.type === 'PAGE_TRANSLATE_STATE_CHANGED') {
       const tabId = sender.tab?.id;
       const phase = (message.payload as { phase?: PageTranslatePhase })?.phase ?? 'idle';
@@ -206,35 +212,37 @@ export default defineBackground(() => {
         rememberPageTranslatePhase(tabId, phase);
         applyPageContextMenuIfFocusedTab(tabId, phase).catch(() => {});
       }
-      sendResponse({ success: true });
-      return false;
+      return { success: true };
     }
 
     if (message.type === 'PAGE_TRANSLATE_PAGE') {
       const payload = message.payload as { tabId: number };
-      browser.tabs
-        .get(payload.tabId)
-        .then((tab) => {
-          if (!isTranslatableTabUrl(tab.url)) {
-            return { success: false, error: 'PAGE_TRANSLATE_UNAVAILABLE' };
-          }
-          return getPageTranslatePhase(payload.tabId).then((phase) => {
-            if (phase !== 'idle') return { success: false, error: 'PAGE_TRANSLATE_ALREADY_ACTIVE' };
-            return browser.tabs
-              .sendMessage(payload.tabId, { type: 'PAGE_TRANSLATE_START' })
-              .then(() => ({ success: true }));
-          });
-        })
-        .then(sendResponse)
-        .catch(() => sendResponse({ success: false, error: 'PAGE_TRANSLATE_UNAVAILABLE' }));
-      return true;
+      try {
+        const tab = await browser.tabs.get(payload.tabId);
+        if (!isTranslatableTabUrl(tab.url)) {
+          return { success: false, error: 'PAGE_TRANSLATE_UNAVAILABLE' };
+        }
+        const phase = await getPageTranslatePhase(payload.tabId);
+        if (phase !== 'idle') return { success: false, error: 'PAGE_TRANSLATE_ALREADY_ACTIVE' };
+        await browser.tabs.sendMessage(payload.tabId, { type: 'PAGE_TRANSLATE_START' });
+        return { success: true };
+      } catch {
+        return { success: false, error: 'PAGE_TRANSLATE_UNAVAILABLE' };
+      }
     }
 
-    handleMessage(message).then(sendResponse);
+    return handleMessage(message, sender);
+  }
+
+  browser.runtime.onMessage.addListener((message: Record<string, unknown>, sender, sendResponse) => {
+    void routeRuntimeMessage(message, sender)
+      .then(sendResponse)
+      .catch(() => sendResponse({ success: false, error: 'BACKGROUND_INITIALIZATION_FAILED' }));
     return true;
   });
 
   browser.commands.onCommand.addListener(async (command) => {
+    await requireInitialization();
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
 
@@ -304,6 +312,7 @@ export default defineBackground(() => {
   });
 
   browser.contextMenus.onClicked.addListener(async (info, tab) => {
+    await requireInitialization();
     if (!tab?.id) return;
 
     const menuId = String(info.menuItemId);

@@ -6,18 +6,21 @@ import { clearOnboardingPending, isOnboardingPending } from '../../shared/onboar
 import { isLlmProvider } from '../../providers/thinking';
 import { AppLogo } from '../../shared/AppLogo';
 import { AVAILABLE_UI_LANGUAGES, setUILanguage, getUILanguage } from '../../shared/i18n';
+import { validateBaseUrl } from '../../shared/url-policy';
 
 export function App() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState<string | null>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, { ok: boolean; msg: string }>>({});
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [uiLang, setUiLang] = useState(getUILanguage());
   const welcomeRef = useRef<HTMLDivElement>(null);
+  const originalPermissionRef = useRef<string | null>(null);
 
   useEffect(() => {
     isOnboardingPending().then(setShowWelcome);
@@ -34,6 +37,13 @@ export function App() {
       (res: MessageResponse<AppSettings>) => {
         if (res.success) {
           setSettings(res.data);
+          try {
+            originalPermissionRef.current = res.data.providers[0]?.baseUrl
+              ? validateBaseUrl(res.data.providers[0].baseUrl).permissionOrigin
+              : null;
+          } catch {
+            originalPermissionRef.current = null;
+          }
           if (res.data.providers.length > 0) {
             setExpandedProvider(res.data.providers[0].id);
           }
@@ -131,13 +141,46 @@ export function App() {
   };
 
   const handleSave = async () => {
+    setSaveError(null);
+    let permissionOrigin: string;
+    try {
+      permissionOrigin = validateBaseUrl(settings.providers[0]?.baseUrl ?? '').permissionOrigin;
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'BASE_URL_INVALID');
+      return;
+    }
+
     setSaving(true);
-    await browser.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: settings });
-    setSaving(false);
-    setSaved(true);
-    setShowWelcome(false);
-    void clearOnboardingPending();
-    setTimeout(() => setSaved(false), 2000);
+    const oldPermission = originalPermissionRef.current;
+    let granted = false;
+    try {
+      granted = await browser.permissions.request({ origins: [permissionOrigin] });
+      if (!granted) throw new Error('HOST_PERMISSION_DENIED');
+
+      const response: MessageResponse<AppSettings> = await browser.runtime.sendMessage({
+        type: 'SAVE_SETTINGS',
+        payload: settings,
+      });
+      if (!response.success) throw new Error(response.error);
+
+      if (oldPermission && oldPermission !== permissionOrigin) {
+        const removed = await browser.permissions.remove({ origins: [oldPermission] });
+        if (!removed) setSaveError('OLD_HOST_PERMISSION_NOT_REMOVED');
+      }
+      originalPermissionRef.current = permissionOrigin;
+      setSettings(response.data);
+      setSaved(true);
+      setShowWelcome(false);
+      void clearOnboardingPending();
+      setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      if (granted && permissionOrigin !== oldPermission) {
+        await browser.permissions.remove({ origins: [permissionOrigin] }).catch(() => false);
+      }
+      setSaveError(error instanceof Error ? error.message : 'SAVE_FAILED');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleVerify = async (provider: ProviderConfig) => {
@@ -381,9 +424,6 @@ export function App() {
         {/* Providers */}
         <Section
           title={t('options.providers')}
-          action={
-            <AddProviderMenu onAdd={(type) => addProvider(type)} />
-          }
         >
           {settings.providers.length === 0 && (
             <p className="text-sm text-gray-400 text-center py-6">{t('options.noProviders')}</p>
@@ -435,13 +475,25 @@ export function App() {
                         <p className="text-xs text-gray-400 -mt-1" dangerouslySetInnerHTML={{ __html: t('options.lmStudioNote') }} />
                       )}
                       {needsApiKey(provider.type) && (
-                        <Field label={t('options.apiKey')}>
-                          <input type="password" value={provider.apiKey || ''} onChange={(e) => updateProvider(provider.id, { apiKey: e.target.value })} placeholder="sk-…" className="input font-mono text-xs" />
-                        </Field>
+                        <>
+                          <Field label={t('options.apiKey')}>
+                            <input type="password" value={provider.apiKey || ''} onChange={(e) => updateProvider(provider.id, { apiKey: e.target.value })} placeholder="Enter or replace the API key" className="input font-mono text-xs" autoComplete="off" />
+                          </Field>
+                          <Field label="API key storage">
+                            <select
+                              value={settings.keyStorageMode}
+                              onChange={(e) => setSettings((s) => ({ ...s, keyStorageMode: e.target.value === 'local' ? 'local' : 'session' }))}
+                              className="input"
+                            >
+                              <option value="session">Session (recommended)</option>
+                              <option value="local">Local persistent storage</option>
+                            </select>
+                          </Field>
+                        </>
                       )}
                       {needsModel(provider.type) && (
                         <Field label={t('options.model')}>
-                          <input type="text" value={provider.model || ''} onChange={(e) => updateProvider(provider.id, { model: e.target.value })} placeholder={provider.type === 'ollama' ? 'llama3' : provider.type === 'lmstudio' ? 'loaded model' : 'gpt-4o-mini'} className="input font-mono text-xs" />
+                          <input type="text" value={provider.model || ''} onChange={(e) => updateProvider(provider.id, { model: e.target.value })} placeholder="Model name" className="input font-mono text-xs" />
                         </Field>
                       )}
                       {isLlmProvider(provider.type) && (
@@ -553,6 +605,7 @@ export function App() {
               {t('options.saved')}
             </span>
           )}
+          {saveError && <span className="text-sm font-medium text-red-600">{saveError}</span>}
         </div>
       </div>
     </div>

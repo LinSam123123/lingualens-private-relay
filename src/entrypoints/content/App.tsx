@@ -154,7 +154,7 @@ export function ContentApp({ onReady }: Props) {
     selectionTriggerModeRef.current = m;
     setSettings((s) => (s ? { ...s, selectionTriggerMode: m } : s));
     void browser.runtime.sendMessage({
-      type: 'SAVE_SETTINGS',
+      type: 'UPDATE_RUNTIME_SETTINGS',
       payload: { selectionTriggerMode: m },
     });
     const key = m === 'modifier'
@@ -207,23 +207,6 @@ export function ContentApp({ onReady }: Props) {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastText(text);
     toastTimerRef.current = setTimeout(() => setToastText(null), 1500);
-  }, []);
-
-  useEffect(() => {
-    const onStorageChanged = (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>) => {
-      if (!changes.settings) return;
-      const newSettings = changes.settings.newValue as AppSettings | undefined;
-      if (!newSettings) return;
-      setSettings(newSettings);
-      if (newSettings.selectionTriggerMode) {
-        selectionTriggerModeRef.current = newSettings.selectionTriggerMode;
-      }
-      if (newSettings.selectionModifierKey) {
-        selectionModifierKeyRef.current = newSettings.selectionModifierKey;
-      }
-    };
-    browser.storage.onChanged.addListener(onStorageChanged);
-    return () => browser.storage.onChanged.removeListener(onStorageChanged);
   }, []);
 
   const finishPageTranslateSession = (progress: TranslateProgress | null) => {

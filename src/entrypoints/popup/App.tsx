@@ -271,7 +271,7 @@ export function App() {
                 type="button"
                 onClick={() => {
                   setSettings((s) => s ? { ...s, selectionTriggerMode: m } : s);
-                  void browser.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { selectionTriggerMode: m } });
+                  void browser.runtime.sendMessage({ type: 'UPDATE_RUNTIME_SETTINGS', payload: { selectionTriggerMode: m } });
                   browser.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
                     if (tab?.id) {
                       browser.tabs.sendMessage(tab.id, {
@@ -302,7 +302,7 @@ export function App() {
                   type="button"
                   onClick={() => {
                     setSettings((s) => s ? { ...s, selectionModifierKey: k } : s);
-                    void browser.runtime.sendMessage({ type: 'SAVE_SETTINGS', payload: { selectionModifierKey: k } });
+                    void browser.runtime.sendMessage({ type: 'UPDATE_RUNTIME_SETTINGS', payload: { selectionModifierKey: k } });
                     browser.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
                       if (tab?.id) {
                         browser.tabs.sendMessage(tab.id, {

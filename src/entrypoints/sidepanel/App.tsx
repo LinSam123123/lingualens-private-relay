@@ -75,21 +75,12 @@ export function App() {
       if (result.translationHistory) setHistory(result.translationHistory as HistoryEntry[]);
     });
 
-    const onStorageChanged = (changes: Record<string, { newValue?: unknown }>) => {
-      if (changes.settings) {
-        const next = changes.settings.newValue as AppSettings | undefined;
-        if (next) setSettings(next);
-      }
-    };
-    browser.storage.onChanged.addListener(onStorageChanged);
-
     const unsubLangs = subscribeTranslatorLanguages((langs) => {
       setSourceLang(langs.sourceLang);
       setTargetLang(langs.targetLang);
     });
 
     return () => {
-      browser.storage.onChanged.removeListener(onStorageChanged);
       unsubLangs();
     };
   }, []);
