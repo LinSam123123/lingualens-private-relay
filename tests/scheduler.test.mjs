@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { canConsumeBudget, classifyRetry, retryDelayMs } from '../src/background/scheduler-policy.ts';
+import {
+  canConsumeBudget,
+  classifyRetry,
+  priorBatchDecision,
+  retryDelayMs,
+  taskControlPolicy,
+} from '../src/background/scheduler-policy.ts';
 
 function httpError(status, code = `HTTP_${status}`) {
   return Object.assign(new Error(code), { status, code });
@@ -88,4 +94,37 @@ test('journal converts dispatched batches to unknown with one batch-level write'
   await initializeTaskJournal();
   assert.equal(store.relayTaskJournal.task.batches.batch.status, 'interrupted/unknown');
   assert.equal(writes, 1);
+});
+
+test('terminal journal states never dispatch without the matching manual action', () => {
+  assert.deepEqual(priorBatchDecision('interrupted/unknown', {
+    manualRetryFailed: false, manualRetryUnknown: false,
+  }), { status: 'interrupted/unknown', code: 'MANUAL_RETRY_REQUIRED' });
+  assert.equal(priorBatchDecision('interrupted/unknown', {
+    manualRetryFailed: false, manualRetryUnknown: true,
+  }), null);
+  assert.deepEqual(priorBatchDecision('failed', {
+    manualRetryFailed: false, manualRetryUnknown: false,
+  }), { status: 'failed', code: 'MANUAL_RETRY_REQUIRED' });
+  assert.equal(priorBatchDecision('failed', {
+    manualRetryFailed: true, manualRetryUnknown: false,
+  }), null);
+  assert.deepEqual(priorBatchDecision('completed', {
+    manualRetryFailed: false, manualRetryUnknown: false,
+  }), { status: 'interrupted/unknown', code: 'COMPLETED_RESULT_UNAVAILABLE' });
+});
+
+test('pause, resume, cancel, and restore have explicit dispatch and abort effects', () => {
+  assert.deepEqual(taskControlPolicy('pause'), {
+    pause: true, dispatch: false, abortActive: false, cancelQueued: false,
+  });
+  assert.deepEqual(taskControlPolicy('resume'), {
+    pause: false, dispatch: true, abortActive: false, cancelQueued: false,
+  });
+  assert.deepEqual(taskControlPolicy('cancel'), {
+    pause: null, dispatch: false, abortActive: true, cancelQueued: true,
+  });
+  assert.deepEqual(taskControlPolicy('restore'), {
+    pause: null, dispatch: false, abortActive: true, cancelQueued: true,
+  });
 });

@@ -154,7 +154,6 @@ export class PageTranslateEngine {
     const retryBatches = this.batches
       .map((batch) => ({ ...batch, items: batch.items.filter((item) => ids.includes(item.id)) }))
       .filter((batch) => batch.items.length > 0);
-    this.taskId = crypto.randomUUID();
     this.isCancelled = false;
     this.isRunning = true;
     await Promise.allSettled(
@@ -163,6 +162,7 @@ export class PageTranslateEngine {
         options,
         onProgress,
         status === 'interrupted/unknown',
+        status === 'failed',
       )),
     );
     this.isRunning = false;
@@ -185,6 +185,7 @@ export class PageTranslateEngine {
     options: PageTranslateOptions,
     onProgress: ProgressCallback,
     manualRetryUnknown = false,
+    manualRetryFailed = false,
   ): Promise<void> {
     const request: TranslationBatchRequest = {
       taskId: this.taskId,
@@ -195,6 +196,7 @@ export class PageTranslateEngine {
       targetLang: options.targetLang,
       items: batch.items.map(({ id, text }) => ({ id, text })),
       manualRetryUnknown,
+      manualRetryFailed,
     };
     try {
       const response = await browser.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: request });
@@ -204,10 +206,56 @@ export class PageTranslateEngine {
         this.applyBatchResult(response.data as TranslationBatchResult, options.displayMode);
       }
     } catch {
-      this.recordBatchFailure(batch, 'interrupted/unknown', 'BACKGROUND_INTERRUPTED');
+      const recovered = await this.recoverBatch(request);
+      if (recovered) this.applyBatchResult(recovered, options.displayMode);
+      else this.recordBatchFailure(batch, 'interrupted/unknown', 'BACKGROUND_INTERRUPTED');
     } finally {
       this.recountProgress();
       onProgress({ ...this.progress });
+    }
+  }
+
+  private async recoverBatch(request: TranslationBatchRequest): Promise<TranslationBatchResult | null> {
+    try {
+      const recovery = await browser.runtime.sendMessage({
+        type: 'GET_TASK_RECOVERY',
+        payload: { taskId: request.taskId, sessionId: request.sessionId },
+      });
+      if (!recovery?.success) return null;
+      const journal = recovery.data as {
+        requestsUsed: number;
+        charsUsed: number;
+        batches: Record<string, { status: string; attempt: number }>;
+      };
+      const batch = journal.batches[request.batchId];
+      if (!batch) return null;
+
+      if (batch.status === 'queued' || batch.status === 'completed') {
+        const resumed = await browser.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: request });
+        return resumed?.success ? resumed.data as TranslationBatchResult : null;
+      }
+
+      const status = batch.status === 'failed' || batch.status === 'cancelled'
+        ? batch.status
+        : 'interrupted/unknown';
+      return {
+        taskId: request.taskId,
+        batchId: request.batchId,
+        requestId: request.requestId,
+        status,
+        attempts: batch.attempt,
+        requestsUsed: journal.requestsUsed,
+        charsUsed: journal.charsUsed,
+        items: request.items.map((item) => ({
+          id: item.id,
+          status,
+          error: status === 'failed'
+            ? 'RECOVERED_FAILED'
+            : status === 'cancelled' ? 'CANCELLED' : 'MANUAL_RETRY_REQUIRED',
+        })),
+      };
+    } catch {
+      return null;
     }
   }
 

@@ -11,6 +11,42 @@ export interface RetryDecision {
   code: string;
 }
 
+export interface PriorBatchDecision {
+  status: 'failed' | 'interrupted/unknown' | 'cancelled';
+  code: string;
+}
+
+export function priorBatchDecision(
+  status: string,
+  flags: { manualRetryFailed: boolean; manualRetryUnknown: boolean },
+): PriorBatchDecision | null {
+  if (status === 'interrupted/unknown' && !flags.manualRetryUnknown) {
+    return { status: 'interrupted/unknown', code: 'MANUAL_RETRY_REQUIRED' };
+  }
+  if (status === 'failed' && !flags.manualRetryFailed) {
+    return { status: 'failed', code: 'MANUAL_RETRY_REQUIRED' };
+  }
+  if (status === 'cancelled') return { status: 'cancelled', code: 'CANCELLED' };
+  if (status === 'completed') {
+    return { status: 'interrupted/unknown', code: 'COMPLETED_RESULT_UNAVAILABLE' };
+  }
+  return null;
+}
+
+export function taskControlPolicy(action: string): {
+  pause: boolean | null;
+  dispatch: boolean;
+  abortActive: boolean;
+  cancelQueued: boolean;
+} {
+  return {
+    pause: action === 'pause' ? true : action === 'resume' ? false : null,
+    dispatch: action === 'resume',
+    abortActive: action === 'cancel' || action === 'restore',
+    cancelQueued: action === 'cancel' || action === 'restore',
+  };
+}
+
 interface HttpLikeError extends Error {
   status?: number;
   code?: string;

@@ -73,6 +73,7 @@ export interface TranslationBatchRequest {
   targetLang: string;
   items: TranslationItem[];
   manualRetryUnknown?: boolean;
+  manualRetryFailed?: boolean;
 }
 
 export interface BatchItemResult {

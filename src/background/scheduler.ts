@@ -7,7 +7,13 @@ import type {
   TranslationBatchResult,
 } from '../shared/types';
 import { RelayAdapter, RelayHttpError } from '../providers/relay';
-import { canConsumeBudget, classifyRetry, retryDelayMs } from './scheduler-policy';
+import {
+  canConsumeBudget,
+  classifyRetry,
+  priorBatchDecision,
+  retryDelayMs,
+  taskControlPolicy,
+} from './scheduler-policy';
 import {
   ensureTask,
   getTaskJournal,
@@ -89,13 +95,20 @@ export class TranslationScheduler {
     const journal = await ensureTask(request, tabId);
     const prior = journal.batches[request.batchId];
     if (prior.requestId !== request.requestId) throw new Error('REQUEST_ID_MISMATCH');
-    if (prior.status === 'interrupted/unknown' && !request.manualRetryUnknown) {
+    const priorDecision = priorBatchDecision(prior.status, {
+      manualRetryFailed: request.manualRetryFailed === true,
+      manualRetryUnknown: request.manualRetryUnknown === true,
+    });
+    if (priorDecision) {
+      const current = prior.status === 'completed'
+        ? await transitionBatch(request.taskId, request.batchId, priorDecision.status)
+        : journal;
       return resultFrom(
         request,
-        'interrupted/unknown',
-        journal,
+        priorDecision.status,
+        current,
         prior.attempt,
-        itemResults(request, 'interrupted/unknown', 'MANUAL_RETRY_REQUIRED'),
+        itemResults(request, priorDecision.status, priorDecision.code),
       );
     }
 
@@ -144,7 +157,9 @@ export class TranslationScheduler {
   private async execute(pending: PendingBatch, runtime: RuntimeTask): Promise<TranslationBatchResult> {
     const { request, config, relay } = pending;
     const chars = request.items.reduce((sum, item) => sum + item.text.length, 0);
-    let attempt = 0;
+    const initial = await getTaskJournal(request.taskId, request.sessionId);
+    let attempt = initial?.batches[request.batchId]?.attempt ?? 0;
+    let automaticRetries = 0;
 
     while (true) {
       if (runtime.cancelled) {
@@ -170,6 +185,7 @@ export class TranslationScheduler {
         charsUsed: nextChars,
         attempt: attempt + 1,
       });
+      attempt++;
 
       const controller = new AbortController();
       runtime.active.set(request.batchId, controller);
@@ -192,28 +208,28 @@ export class TranslationScheduler {
         });
         const status: BatchStatus = items.every((item) => item.status === 'completed') ? 'completed' : 'failed';
         const done = await transitionBatch(request.taskId, request.batchId, status);
-        return resultFrom(request, status, done, attempt + 1, items);
+        return resultFrom(request, status, done, attempt, items);
       } catch (error) {
         const decision = classifyRetry(error, {
-          attempt,
+          attempt: automaticRetries,
           retryGatewayErrors: config.retryGatewayErrors === true,
           cancelled: runtime.cancelled,
           timedOut,
         });
         if (decision.retry) {
-          attempt++;
+          automaticRetries++;
           const retryAfter = error instanceof RelayHttpError ? error.retryAfter : null;
-          await wait(retryDelayMs(attempt - 1, retryAfter) + Math.floor(Math.random() * 250));
+          await wait(retryDelayMs(automaticRetries - 1, retryAfter) + Math.floor(Math.random() * 250));
           continue;
         }
         const done = await transitionBatch(request.taskId, request.batchId, decision.terminalStatus, {
-          attempt: attempt + 1,
+          attempt,
         });
         return resultFrom(
           request,
           decision.terminalStatus,
           done,
-          attempt + 1,
+          attempt,
           itemResults(request, decision.terminalStatus, decision.code),
         );
       } finally {
@@ -225,14 +241,14 @@ export class TranslationScheduler {
 
   async control(taskId: string, sessionId: string, action: TaskControlAction): Promise<boolean> {
     const runtime = this.runtimeTask(taskId);
-    if (action === 'pause') runtime.paused = true;
-    if (action === 'resume') {
-      runtime.paused = false;
-      await this.dispatch();
-    }
-    if (action === 'cancel' || action === 'restore') {
+    const policy = taskControlPolicy(action);
+    if (policy.pause !== null) runtime.paused = policy.pause;
+    if (policy.dispatch) await this.dispatch();
+    if (policy.abortActive) {
       runtime.cancelled = true;
       for (const controller of runtime.active.values()) controller.abort();
+    }
+    if (policy.cancelQueued) {
       for (const pending of runtime.queue.splice(0)) {
         const journal = await transitionBatch(taskId, pending.request.batchId, 'cancelled');
         pending.resolve(resultFrom(
