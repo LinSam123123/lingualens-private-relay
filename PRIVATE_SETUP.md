@@ -105,6 +105,7 @@ npm run mock-relay
 使用模型 `mock-model`，Base URL 可选：
 
 - `http://127.0.0.1:17891/ok/v1`
+- `http://127.0.0.1:17891/slow/v1`
 - `http://127.0.0.1:17891/redirect/v1`
 - `http://127.0.0.1:17891/rate-limit/v1`
 - `http://127.0.0.1:17891/gateway/v1`
@@ -113,6 +114,8 @@ npm run mock-relay
 - `http://127.0.0.1:17891/disconnect/v1`
 
 手动验收应覆盖 Chat Completions、Responses、重定向提示、429、502/503 两种策略、Header 拒绝、连接拒绝、模糊断开、25 秒超时、取消、预算、SW 重启和恢复原文。Chrome 与 Edge 需要分别加载产物验证。
+
+普通 DOM fixture 位于 `http://127.0.0.1:17891/fixture`，多批次暂停/取消 fixture 位于 `http://127.0.0.1:17891/fixture-long`。当前手动验收状态见 [docs/MANUAL_VALIDATION.md](docs/MANUAL_VALIDATION.md)。
 
 ## 9. 数据清理
 
