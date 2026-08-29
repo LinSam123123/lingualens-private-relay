@@ -11,6 +11,7 @@
 - Chrome/Edge MV3 第一阶段功能已实现。
 - Chrome 核心手动矩阵已完成并通过。
 - Edge 尚未开始手动兼容验收。
+- Firefox MV2 预览构建已生成并完成 Manifest 检查，但尚未在真实 Firefox 中手动验证。
 - 最新完整自动验证已通过：测试、TypeScript、Chrome production build 和产物审计。
 - 动态 DOM、多预设、持久缓存、Firefox 完整适配、旧 Provider 物理清理和依赖升级仍属于后续阶段。
 

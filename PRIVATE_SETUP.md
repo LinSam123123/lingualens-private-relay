@@ -16,6 +16,21 @@ Chrome 和 Edge 的加载方法：
 
 首次安装或更新扩展后，刷新需要翻译的网页。浏览器内部页、扩展商店页等受限页面不能注入 Content Script。
 
+### Firefox 临时预览
+
+Firefox 完整适配仍属于第二阶段，但可以临时加载当前预览构建：
+
+```powershell
+npm run build:firefox
+```
+
+1. 在 Firefox 打开 `about:debugging#/runtime/this-firefox`。
+2. 点击“临时载入附加组件”。
+3. 选择 `.output/firefox-mv2/manifest.json`。
+4. 打开扩展设置，填写 Relay 后点击“保存并授权域名”。
+
+临时附加组件会在 Firefox 完全退出后被移除，下次需要重新载入。当前预览构建未完成 Firefox 全量手动矩阵；遇到浏览器差异时应记录并放入第二阶段适配，不影响 Chrome/Edge MVP。
+
 ## 2. 中转站要求
 
 Base URL 必须满足：
