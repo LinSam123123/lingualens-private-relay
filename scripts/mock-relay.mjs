@@ -22,6 +22,19 @@ const fixturePage = `<!doctype html>
 </body>
 </html>`;
 
+const longFixtureParagraphs = Array.from({ length: 16 }, (_, index) => `
+    <p id="long-${index + 1}">Batch ${index + 1}: This deliberately repetitive paragraph supplies enough stable text for manual scheduler validation. It lets the tester pause while some requests are active and other batches remain queued, then resume without replaying completed or unknown work. The paragraph stays independent so translation progress can be counted directly.</p>`).join('');
+
+const longFixturePage = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>LinguaLens Multi-batch Fixture</title></head>
+<body>
+  <main>
+    <h1>Private relay multi-batch fixture</h1>${longFixtureParagraphs}
+  </main>
+</body>
+</html>`;
+
 function json(response, status, body, headers = {}) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...headers });
   response.end(JSON.stringify(body));
@@ -71,6 +84,11 @@ const server = http.createServer((request, response) => {
     response.end(fixturePage);
     return;
   }
+  if (url.pathname === '/fixture-long') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(longFixturePage);
+    return;
+  }
 
   if (scenario === 'redirect') {
     response.writeHead(307, { Location: `/ok/v1/${endpoint}` });
@@ -114,6 +132,11 @@ const server = http.createServer((request, response) => {
     }
     let body;
     try { body = JSON.parse(raw); } catch { json(response, 400, { error: 'invalid JSON' }); return; }
+    if (scenario === 'slow') {
+      const timer = setTimeout(() => success(response, endpoint === 'responses' ? 'responses' : 'chat-completions', body), 1_500);
+      timer.unref();
+      return;
+    }
     success(response, endpoint === 'responses' ? 'responses' : 'chat-completions', body);
   });
 });
@@ -122,7 +145,7 @@ server.listen(port, '127.0.0.1', async () => {
   const address = server.address();
   const activePort = typeof address === 'object' && address ? address.port : port;
   console.log(`Mock relay listening on http://127.0.0.1:${activePort}/ok/v1`);
-  console.log('Scenarios: ok, redirect, rate-limit, gateway, header-rejected, timeout, disconnect');
+  console.log('Scenarios: ok, slow, redirect, rate-limit, gateway, header-rejected, timeout, disconnect');
   if (!selfTest) return;
 
   const base = `http://127.0.0.1:${activePort}`;
@@ -131,6 +154,8 @@ server.listen(port, '127.0.0.1', async () => {
   try {
     const models = await (await fetch(`${base}/ok/v1/models`)).json();
     assert.equal(models.data[0].id, 'mock-model');
+    const longFixture = await (await fetch(`${base}/fixture-long`)).text();
+    assert.match(longFixture, /Batch 16:/);
 
     const chat = await (await fetch(`${base}/ok/v1/chat/completions`, {
       method: 'POST', headers, body: JSON.stringify({ messages: [{ role: 'user', content: input }] }),
@@ -141,6 +166,11 @@ server.listen(port, '127.0.0.1', async () => {
       method: 'POST', headers, body: JSON.stringify({ input }),
     })).json();
     assert.match(responses.output_text, /item-1/);
+
+    const slow = await (await fetch(`${base}/slow/v1/responses`, {
+      method: 'POST', headers, body: JSON.stringify({ input }),
+    })).json();
+    assert.match(slow.output_text, /item-1/);
 
     const redirect = await fetch(`${base}/redirect/v1/models`, { redirect: 'manual' });
     assert.equal(redirect.status, 307);
