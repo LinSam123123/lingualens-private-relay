@@ -1,6 +1,6 @@
 # MVP 手动验收进度
 
-最后更新：2026-09-11
+最后更新：2026-09-12
 
 分支：`codex/lingualens-private-translator`
 
@@ -56,7 +56,9 @@ Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Ch
 | 划词翻译（无 scripting） | 未测 | |
 | 设置页禁用 local Key | 未测 | |
 | `websiteContent` 安装提示 | 未测 | |
-| 扩展隔离的持久 Key | 待测 | 假 Key；见下方步骤。临时载入退出后消失不能算存储失败 |
+| 扩展隔离的持久 Key | 部分通过（用户报告） | 设置页显示持久模式与脱敏 Key；未测完全退出后的临时附加组件生命周期 |
+| 网页 origin IndexedDB 探测 | 通过（用户报告） | `/credential-probe` 的 `relayApiKeyRecord` 为 `null`。不要重复此步 |
+| Content Script IndexedDB 隔离 | 待测 | 设置页“检查 Content Script 隔离”；结果不得包含 Key |
 
 ## Edge 基础兼容冒烟
 
@@ -74,10 +76,9 @@ Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Ch
 
 未阻塞个人私有使用。若继续预览：
 
-1. Firefox 持久 Key（假 Key）：保存为“扩展隔离的持久存储”→ 重新加载附加组件（不要完全退出）→ 设置页仍显示 hasKey → 再完全退出 Firefox 时，若是临时载入，扩展会消失，不能据此判断 IDB 失败。
-2. 打开 `http://127.0.0.1:17891/credential-probe`，确认页面 origin 不是 `moz-extension:`，且 `relayApiKeyRecord` 不是保存的假 Key。
-3. Firefox 划词翻译（无 `scripting`）。
-4. Edge 切换 Responses 后再做一次整页翻译与恢复原文。
+1. Firefox Content Script 隔离：打开 `/fixture`（不要再打开 `/credential-probe`），在设置页点“检查 Content Script 隔离”。`origin` 应为页面 origin，`isMozExtensionOrigin` 为 false，`hasRelayApiKeyRecord` 为 false，输出中不能出现 Key。
+2. Firefox 划词翻译（无 `scripting`）。
+3. Edge 切换 Responses 后再做一次整页翻译与恢复原文。
 
 ### 收尾
 

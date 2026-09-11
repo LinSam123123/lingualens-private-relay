@@ -75,7 +75,7 @@ Key 默认存入 `storage.session`，浏览器会话结束后可能丢失。Chro
 
 Firefox 不支持 `storage.local.setAccessLevel`，因此仍拒绝用未受保护的 `storage.local` 存明文 Key。Firefox 可改用“扩展隔离的持久存储”：Background 把 Key 写入本扩展 `moz-extension://` origin 的 IndexedDB。网页和 Content Script 的 IndexedDB 属于页面 origin，不是这份库。这不是系统密码库，不能抵御本机恶意软件、配置文件被复制或扩展失陷。存储失败会明确报错，不会静默写到 `storage.local`。
 
-临时载入（`about:debugging`）会在 Firefox **完全退出**后被移除，IndexedDB 默认一并删除。这是附加组件生命周期，不是凭据存储失败。跨重启保留 Key 需要扩展在重启后仍处于安装状态。同一临时载入会话内可用“重新加载”验证读写；`gecko.id` 让重新加载保持同一 origin。隔离探针页：`http://127.0.0.1:17891/credential-probe`（应显示页面 origin，且 `relayApiKeyRecord` 不是你保存的假 Key）。
+临时载入（`about:debugging`）会在 Firefox **完全退出**后被移除，IndexedDB 默认一并删除。这是附加组件生命周期，不是凭据存储失败。跨重启保留 Key 需要扩展在重启后仍处于安装状态。同一临时载入会话内可用“重新加载”验证读写；`gecko.id` 让重新加载保持同一 origin。网页 origin 探针（已做过则不要重复）：`http://127.0.0.1:17891/credential-probe`。Content Script 隔离：打开普通网页后在设置页点“检查 Content Script 隔离”；结果只有 origin 和是否存在记录，不会返回 Key。
 
 ## 4. 默认限制
 
