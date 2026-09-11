@@ -4,7 +4,7 @@
     "description": "Extension display name"
   },
   "extDescription": {
-    "message": "LinguaLens — translate anything with LLM and online APIs",
+    "message": "Private Relay translator. Sends selected or page text only to the Relay URL you configure.",
     "description": "Extension description shown in store and management page"
   },
   "commandTranslateSelection": {

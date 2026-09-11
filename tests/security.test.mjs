@@ -112,6 +112,8 @@ test('Firefox preview manifest requests websiteContent instead of claiming no tr
     ]);
     assert.equal(manifest.permissions.includes('scripting'), false);
     assert.equal(manifest.browser_specific_settings?.gecko?.id, 'lingualens-private-relay@local');
+    assert.equal(manifest.browser_specific_settings?.gecko?.strict_min_version, '140.0');
+    assert.equal('update_url' in manifest, false);
     assert.deepEqual(
       manifest.browser_specific_settings?.gecko?.data_collection_permissions,
       { required: ['websiteContent'] },

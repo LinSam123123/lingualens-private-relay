@@ -1,6 +1,6 @@
 {
   "name": "lingualens",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -14,6 +14,8 @@
     "build": "wxt build",
     "build:firefox": "wxt build --browser firefox",
     "zip": "wxt zip",
+    "zip:firefox": "wxt zip --browser firefox",
+    "pack:firefox-unlisted": "node scripts/pack-firefox-unlisted.mjs",
     "test:security": "node --experimental-strip-types --test tests/security.test.mjs",
     "test:storage-access": "node --experimental-strip-types --test tests/storage-access.test.mjs",
     "test:side-panel": "node --experimental-strip-types --test tests/side-panel.test.mjs",

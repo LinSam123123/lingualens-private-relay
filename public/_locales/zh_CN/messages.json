@@ -4,7 +4,7 @@
     "description": "Extension display name"
   },
   "extDescription": {
-    "message": "LinguaLens — 使用 LLM 和在线 API 翻译一切",
+    "message": "私有中转站翻译。仅把划词或页面文本发到你配置的 Relay 地址。",
     "description": "Extension description shown in store and management page"
   },
   "commandTranslateSelection": {

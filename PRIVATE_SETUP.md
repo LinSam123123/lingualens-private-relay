@@ -30,6 +30,8 @@ npm run build:firefox
 4. 打开扩展设置，填写 Relay 后点击“保存并授权域名”。
 5. Popup 的侧边栏按钮在 Firefox 中通过 `sidebarAction.open()` 打开；Chrome/Edge 仍使用 `sidePanel.open`。
 
+跨重启使用请看 [docs/FIREFOX_UNLISTED_SIGNING.md](docs/FIREFOX_UNLISTED_SIGNING.md)：Mozilla Unlisted 签名后从文件安装，不要关闭签名校验。
+
 临时附加组件会在 Firefox 完全退出后被移除，下次需要重新载入。Firefox 预览已做过保存授权、整页翻译、恢复原文和 Popup 侧边栏的冒烟（用户报告/界面观察）。全量异常矩阵、划词和无 `scripting` 的边界仍未测；遇到新的浏览器差异应记录，不要为跑通而降低 Key 隔离。
 
 Firefox 140+ 可能显示数据收集说明。Manifest 声明 `websiteContent`，因为翻译会把网页正文发到你配置的 Relay，而不是因为项目有遥测。`required: ["none"]` 仅适用于完全不向扩展或本地浏览器之外传输数据的附加组件。

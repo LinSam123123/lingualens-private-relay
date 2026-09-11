@@ -29,7 +29,7 @@ The unpacked production extension is generated at `.output/chrome-mv3`.
 
 For installation, Relay configuration, retry semantics, data cleanup, mock Relay scenarios, and upstream updates, see [PRIVATE_SETUP.md](PRIVATE_SETUP.md).
 
-Chrome/Edge MVP manual validation progress is tracked in [docs/MANUAL_VALIDATION.md](docs/MANUAL_VALIDATION.md).
+Chrome/Edge MVP manual validation progress is tracked in [docs/MANUAL_VALIDATION.md](docs/MANUAL_VALIDATION.md). Firefox unlisted signing (self-distribution, no public listing) is described in [docs/FIREFOX_UNLISTED_SIGNING.md](docs/FIREFOX_UNLISTED_SIGNING.md).
 
 ## Development
 

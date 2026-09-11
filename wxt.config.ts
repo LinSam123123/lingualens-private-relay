@@ -23,6 +23,7 @@ export default defineConfig({
         browser_specific_settings: {
           gecko: {
             id: 'lingualens-private-relay@local',
+            strict_min_version: '140.0',
             // Mozilla: transmission is any data leaving the add-on or local browser.
             // Page translation sends website text to the user-configured Relay.
             data_collection_permissions: { required: ['websiteContent'] },
