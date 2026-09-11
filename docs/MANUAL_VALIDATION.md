@@ -14,7 +14,7 @@
 - Firefox MV2 预览冒烟已由用户报告通过：保存并授权、整页翻译、恢复原文、Popup 打开侧边栏。这些是界面观察，没有 Mock Relay fetch 计数，也不是 Chrome 异常矩阵的复测。
 - Firefox 仍未做：划词翻译、local Key 禁用项、安装提示中的 `websiteContent` 声明、429/超时/SW 等异常路径。
 - Firefox 不支持 `storage.*.setAccessLevel`。自动测试覆盖：初始化不会因此失败；local Key 被拒绝；session Key 仍可用。
-- Firefox Manifest 的 `data_collection_permissions.required` 为 `websiteContent`。不能因为没有遥测就写 `none`。该声明尚未在真实 Firefox 安装提示中目视确认。
+- Firefox Manifest 的 `data_collection_permissions.required` 为 `websiteContent`。不能因为没有遥测就写 `none`。签名安装提示中的该声明尚未目视确认。
 - 最新完整自动验证已通过：测试、TypeScript、Chrome production build 和产物审计。
 - 动态 DOM、多预设、持久缓存、Firefox 完整适配、旧 Provider 物理清理和依赖升级仍属于后续阶段。
 
@@ -58,7 +58,7 @@ Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Ch
 | `websiteContent` 安装提示 | 未测 | |
 | 扩展隔离的持久 Key | 部分通过（用户报告） | 设置页显示持久模式与脱敏 Key；未测完全退出后的临时附加组件生命周期 |
 | 网页 origin IndexedDB 探测 | 通过（用户报告） | `/credential-probe` 的 `relayApiKeyRecord` 为 `null`。不要重复此步 |
-| Content Script IndexedDB 隔离 | 未完成 | 上次点到设置页自身，得到 CONTENT_SCRIPT_UNAVAILABLE。不能记为通过或泄漏 |
+| Content Script IndexedDB 隔离 | 通过（用户报告） | 明确选中 fixture 后：`origin=http://127.0.0.1:17891`，`isMozExtensionOrigin=false`，`hasRelayApiKeyRecord=false`，JSON 无 Key。不是泄漏。完全退出后的持久 Key 仍未测 |
 
 ## Edge 基础兼容冒烟
 
@@ -76,7 +76,7 @@ Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Ch
 
 未阻塞个人私有使用。若继续预览：
 
-1. Firefox Content Script 隔离：保持 `/fixture` 打开，在设置页刷新标签列表并**明确选中 fixture**，再点检查。不要用当前活动标签，不要再打开 `/credential-probe`。结果不得包含 Key；此项尚未通过。
+1. 签名 XPI 安装后：完全退出再打开 Firefox，确认扩展仍在，且隔离持久 Key 仍可用。临时载入退出后消失不能当作存储失败。
 2. Firefox 划词翻译（无 `scripting`）。
 3. Edge 切换 Responses 后再做一次整页翻译与恢复原文。
 
