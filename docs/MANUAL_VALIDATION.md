@@ -58,7 +58,7 @@ Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Ch
 | `websiteContent` 安装提示 | 未测 | |
 | 扩展隔离的持久 Key | 部分通过（用户报告） | 设置页显示持久模式与脱敏 Key；未测完全退出后的临时附加组件生命周期 |
 | 网页 origin IndexedDB 探测 | 通过（用户报告） | `/credential-probe` 的 `relayApiKeyRecord` 为 `null`。不要重复此步 |
-| Content Script IndexedDB 隔离 | 待测 | 设置页“检查 Content Script 隔离”；结果不得包含 Key |
+| Content Script IndexedDB 隔离 | 未完成 | 上次点到设置页自身，得到 CONTENT_SCRIPT_UNAVAILABLE。不能记为通过或泄漏 |
 
 ## Edge 基础兼容冒烟
 
@@ -76,7 +76,7 @@ Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Ch
 
 未阻塞个人私有使用。若继续预览：
 
-1. Firefox Content Script 隔离：打开 `/fixture`（不要再打开 `/credential-probe`），在设置页点“检查 Content Script 隔离”。`origin` 应为页面 origin，`isMozExtensionOrigin` 为 false，`hasRelayApiKeyRecord` 为 false，输出中不能出现 Key。
+1. Firefox Content Script 隔离：保持 `/fixture` 打开，在设置页刷新标签列表并**明确选中 fixture**，再点检查。不要用当前活动标签，不要再打开 `/credential-probe`。结果不得包含 Key；此项尚未通过。
 2. Firefox 划词翻译（无 `scripting`）。
 3. Edge 切换 Responses 后再做一次整页翻译与恢复原文。
 

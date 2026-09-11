@@ -45,3 +45,18 @@ export function isTranslatableTabUrl(url: string | undefined): boolean {
 
   return true;
 }
+
+/** Ordinary http(s) pages where a content-script isolation probe may be offered. */
+export function isOrdinaryHttpTabUrl(url: string | undefined): boolean {
+  if (!url) return false;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  return !isExtensionStoreUrl(parsed.hostname, parsed.pathname);
+}

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { isOptionsSender, isOwnExtensionSender, isTranslateRequest } from '../src/background/message-policy.ts';
+import { isOrdinaryHttpTabUrl } from '../src/shared/translatable-tab.ts';
 import {
   endpointUrl,
   hostPermissionOrigins,
@@ -124,12 +125,25 @@ test('Firefox preview manifest requests websiteContent instead of claiming no tr
   }
 });
 
+test('ordinary http tab URLs exclude settings pages and do not guess a tab', () => {
+  assert.equal(isOrdinaryHttpTabUrl('http://127.0.0.1:17891/fixture'), true);
+  assert.equal(isOrdinaryHttpTabUrl('https://example.com/path'), true);
+  assert.equal(isOrdinaryHttpTabUrl('moz-extension://addon-id/options.html'), false);
+  assert.equal(isOrdinaryHttpTabUrl('about:debugging'), false);
+  assert.equal(isOrdinaryHttpTabUrl(undefined), false);
+});
+
 test('secret status is options-only and no message returns a raw API key', async () => {
   const router = await readFile(new URL('../src/background/message-router.ts', import.meta.url), 'utf8');
   const types = await readFile(new URL('../src/shared/types.ts', import.meta.url), 'utf8');
   assert.match(router, /case 'GET_SECRET_STATUS':\s*\{[\s\S]*?OPTIONS_ONLY/);
   assert.match(router, /case 'PROBE_CONTENT_SCRIPT_ISOLATION':\s*\{[\s\S]*?OPTIONS_ONLY/);
+  assert.match(router, /UNSUPPORTED_TAB/);
+  assert.match(router, /CONTENT_SCRIPT_MISSING/);
   assert.match(router, /publicCredentialIsolationProbe/);
+  const options = await readFile(new URL('../src/entrypoints/options/App.tsx', import.meta.url), 'utf8');
+  assert.equal(/lastFocusedWindow/.test(options), false);
+  assert.match(options, /probeTabId/);
   assert.equal(/GET_API_KEY/.test(router), false);
   assert.equal(/GET_API_KEY/.test(types), false);
   assert.match(router, /stripSecrets/);

@@ -18,6 +18,7 @@ import { normalizeSecretStorageMode } from './secret-policy';
 import { canUseLocalKeyStorage } from './storage-access';
 import { validateBaseUrl } from '../shared/url-policy';
 import { publicCredentialIsolationProbe } from '../shared/credential-isolation';
+import { isOrdinaryHttpTabUrl } from '../shared/translatable-tab';
 import {
   isOptionsSender,
   isOwnExtensionSender,
@@ -413,13 +414,20 @@ export async function handleMessage(
       if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
       const tabId = Number((message.payload as { tabId?: number } | undefined)?.tabId);
       if (!Number.isInteger(tabId) || tabId < 0) return { success: false, error: 'TAB_REQUIRED' };
+      let tabUrl: string | undefined;
+      try {
+        tabUrl = (await browser.tabs.get(tabId)).url;
+      } catch {
+        return { success: false, error: 'UNSUPPORTED_TAB' };
+      }
+      if (!isOrdinaryHttpTabUrl(tabUrl)) return { success: false, error: 'UNSUPPORTED_TAB' };
       try {
         const response = await browser.tabs.sendMessage(tabId, { type: 'PROBE_CREDENTIAL_ISOLATION' }) as {
           data?: Record<string, unknown>;
         };
         return { success: true, data: publicCredentialIsolationProbe(response?.data ?? {}) };
       } catch {
-        return { success: false, error: 'CONTENT_SCRIPT_UNAVAILABLE' };
+        return { success: false, error: 'CONTENT_SCRIPT_MISSING' };
       }
     }
     case 'CLEAR_SECRET':

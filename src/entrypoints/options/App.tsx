@@ -24,6 +24,7 @@ import {
   resolveHostPermissionBrowser,
 } from '../../shared/url-policy';
 import type { PublicCredentialIsolationProbe } from '../../shared/credential-isolation';
+import { isOrdinaryHttpTabUrl } from '../../shared/translatable-tab';
 
 export function App() {
   const { t } = useTranslation();
@@ -43,6 +44,8 @@ export function App() {
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [diagnostic, setDiagnostic] = useState<ConnectionTestResult | null>(null);
   const [isolationProbe, setIsolationProbe] = useState<PublicCredentialIsolationProbe | null>(null);
+  const [httpTabs, setHttpTabs] = useState<Array<{ id: number; label: string }>>([]);
+  const [probeTabId, setProbeTabId] = useState('');
   const [uiLang, setUiLang] = useState(getUILanguage());
   const originalPermissionRef = useRef<string | null>(null);
 
@@ -185,18 +188,42 @@ export function App() {
     setNotice({ ok: true, text: t('options.keyCleared') });
   };
 
+  const refreshHttpTabs = async () => {
+    const tabs = await browser.tabs.query({});
+    const listed = tabs.flatMap((tab) => {
+      if (typeof tab.id !== 'number' || !isOrdinaryHttpTabUrl(tab.url)) return [];
+      return [{
+        id: tab.id,
+        label: `${tab.title || tab.url} — ${tab.url}`,
+      }];
+    });
+    setHttpTabs(listed);
+    setProbeTabId((current) => (listed.some((tab) => String(tab.id) === current) ? current : ''));
+  };
+
+  useEffect(() => {
+    if (resolveHostPermissionBrowser() !== 'firefox') return;
+    void refreshHttpTabs();
+  }, []);
+
   const probeContentScriptIsolation = async () => {
     setNotice(null);
     setIsolationProbe(null);
-    const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!probeTabId) {
+      setNotice({ ok: false, text: t('options.probeTabRequired') });
+      return;
+    }
     const response: MessageResponse<PublicCredentialIsolationProbe> = await browser.runtime.sendMessage({
       type: 'PROBE_CONTENT_SCRIPT_ISOLATION',
-      payload: { tabId: tab?.id },
+      payload: { tabId: Number(probeTabId) },
     });
     if (!response.success) {
-      setNotice({ ok: false, text: response.error === 'CONTENT_SCRIPT_UNAVAILABLE'
-        ? t('options.contentIsolationUnavailable')
-        : response.error });
+      const errorText = response.error === 'UNSUPPORTED_TAB'
+        ? t('options.unsupportedProbeTab')
+        : response.error === 'CONTENT_SCRIPT_MISSING'
+          ? t('options.contentScriptMissing')
+          : response.error;
+      setNotice({ ok: false, text: errorText });
       return;
     }
     setIsolationProbe(response.data);
@@ -270,10 +297,35 @@ export function App() {
           )}
           {resolveHostPermissionBrowser() === 'firefox' && (
             <div className="mt-3">
-              <button type="button" className="btn-secondary" onClick={() => void probeContentScriptIsolation()}>
+              <Field label={t('options.probeTab')}>
+                <div className="flex gap-2">
+                  <select
+                    className="input flex-1"
+                    value={probeTabId}
+                    onChange={(e) => setProbeTabId(e.target.value)}
+                  >
+                    <option value="">{t('options.probeTabPlaceholder')}</option>
+                    {httpTabs.map((tab) => (
+                      <option key={tab.id} value={String(tab.id)}>{tab.label}</option>
+                    ))}
+                  </select>
+                  <button type="button" className="btn-secondary shrink-0" onClick={() => void refreshHttpTabs()}>
+                    {t('options.refreshProbeTabs')}
+                  </button>
+                </div>
+              </Field>
+              <button
+                type="button"
+                className="btn-secondary mt-2"
+                disabled={!probeTabId}
+                onClick={() => void probeContentScriptIsolation()}
+              >
                 {t('options.probeContentIsolation')}
               </button>
               <p className="text-xs text-gray-500 mt-2">{t('options.probeContentIsolationHelp')}</p>
+              {httpTabs.length === 0 && (
+                <p className="text-xs text-amber-700 mt-2">{t('options.probeTabListEmpty')}</p>
+              )}
               {isolationProbe && (
                 <pre className="mt-2 text-xs bg-gray-50 border border-gray-200 rounded-md p-3 overflow-x-auto">{JSON.stringify(isolationProbe, null, 2)}</pre>
               )}
