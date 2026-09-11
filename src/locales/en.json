@@ -1,7 +1,7 @@
 {
   "popup": {
     "sidePanel": "Side panel",
-    "sidePanelTitle": "Opens the full translator in the browser side panel (Chromium 114+)",
+    "sidePanelTitle": "Opens the full translator in the browser side panel",
     "placeholder": "Enter text to translate…",
     "translate": "Translate",
     "translating": "Translating…",
@@ -15,7 +15,7 @@
     "pageTranslateUnavailable": "Page translation is not available on this page. Open a normal web page and try again.",
     "noProvider": "No active provider configured. Open Settings to add one.",
     "translationFailed": "Translation failed",
-    "sidePanelNotAvailable": "Side panel is not available in this browser. Try recent Chrome or Edge (Chromium).",
+    "sidePanelNotAvailable": "Side panel is not available in this browser.",
     "cannotDetectWindow": "Could not detect the browser window.",
     "cannotOpenSidePanel": "Could not open side panel."
   },

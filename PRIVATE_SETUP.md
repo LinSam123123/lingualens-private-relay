@@ -28,6 +28,7 @@ npm run build:firefox
 2. 点击“临时载入附加组件”。
 3. 选择 `.output/firefox-mv2/manifest.json`。
 4. 打开扩展设置，填写 Relay 后点击“保存并授权域名”。
+5. Popup 的侧边栏按钮在 Firefox 中通过 `sidebarAction.open()` 打开；Chrome/Edge 仍使用 `sidePanel.open`。
 
 临时附加组件会在 Firefox 完全退出后被移除，下次需要重新载入。当前预览构建未完成 Firefox 全量手动矩阵；遇到浏览器差异时应记录并放入第二阶段适配，不影响 Chrome/Edge MVP。
 

@@ -1,6 +1,6 @@
 # MVP 手动验收进度
 
-最后更新：2026-08-29
+最后更新：2026-09-11
 
 分支：`codex/lingualens-private-translator`
 
@@ -11,9 +11,10 @@
 - Chrome/Edge MV3 第一阶段功能已实现。
 - Chrome 核心手动矩阵已完成并通过。
 - Edge 尚未开始手动兼容验收。
-- Firefox MV2 预览构建已生成并完成 Manifest 检查，但尚未在真实 Firefox 中手动验证。
-- Firefox 不支持 `storage.*.setAccessLevel`。自动测试覆盖：初始化不会因此失败；local Key 被拒绝；session Key 仍可用。真实浏览器中的设置页禁用项、划词（无 `scripting`）、Sidebar 仍缺实测证据。
-- Firefox 曾因申请 `http://127.0.0.1:17891/*` 失败（manifest 只有无端口的 `http://127.0.0.1/*`）。代码已改为 Firefox 申请无端口主机模式，Chrome 仍申请含端口 origin；自动测试已覆盖。真实 Firefox 保存并授权尚未复测。
+- Firefox MV2 预览仍未完成全量手动矩阵；不要把 Chrome 矩阵结果套到 Firefox。
+- Firefox 不支持 `storage.*.setAccessLevel`。自动测试覆盖：初始化不会因此失败；local Key 被拒绝；session Key 仍可用。设置页 local 选项禁用仍缺本次实测记录。
+- Firefox 保存并授权 loopback：用户报告已通过。证据是授权提示不再出现 `http://127.0.0.1:17891/*` 未声明错误；没有 Mock Relay fetch 计数，也未证明整页翻译、恢复原文、划词或 Sidebar。
+- Popup 侧边栏按钮已改为：Chrome 仍走 `sidePanel.open`，Firefox 走 `sidebarAction.open`。自动测试覆盖策略选择；真实 Firefox 点击尚未验证。
 - Firefox Manifest 的 `data_collection_permissions.required` 现为 `websiteContent`。Mozilla 将“向扩展或本地浏览器之外传输数据”视为 data transmission；向用户配置的 Relay 发送网页正文符合 `websiteContent`，不能因为没有遥测就写 `none`。该声明尚未在真实 Firefox 安装提示中目视确认。
 - 最新完整自动验证已通过：测试、TypeScript、Chrome production build 和产物审计。
 - 动态 DOM、多预设、持久缓存、Firefox 完整适配、旧 Provider 物理清理和依赖升级仍属于后续阶段。
@@ -45,6 +46,14 @@
 
 ## 尚待完成
 
+### Firefox 预览冒烟（不要重复 Chrome 异常矩阵）
+
+1. 重新临时载入 `.output/firefox-mv2/manifest.json`（侧边栏代码已更新）。
+2. Mock Relay 保持 `http://127.0.0.1:17891/ok/v1`、`mock-model`、session Key。
+3. 打开 `http://127.0.0.1:17891/fixture`，整页翻译一次，再恢复原文。
+4. 从 Popup 打开侧边栏，确认能显示，不必测历史持久化。
+5. 可选：划词翻译一次（无 `scripting` 权限）。
+
 ### Edge 基础兼容验收
 
 1. 在 `edge://extensions` 加载 `.output/chrome-mv3`。
@@ -66,6 +75,12 @@ Edge 只做基础兼容验收，不重复 Chrome 的全部异常矩阵，除非�
 
 ```powershell
 npm run mock-relay
+```
+
+Firefox 加载文件：
+
+```text
+<home>\Documents\浏览器翻译插件\.output\firefox-mv2\manifest.json
 ```
 
 Edge 加载目录：

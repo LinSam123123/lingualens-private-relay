@@ -1,7 +1,7 @@
 {
   "popup": {
     "sidePanel": "侧边栏",
-    "sidePanelTitle": "在浏览器侧边栏中打开完整翻译器（Chromium 114+）",
+    "sidePanelTitle": "在浏览器侧边栏中打开完整翻译器",
     "placeholder": "输入要翻译的文本…",
     "translate": "翻译",
     "translating": "翻译中…",
@@ -15,7 +15,7 @@
     "pageTranslateUnavailable": "页面翻译在此页面不可用。请打开一个普通网页后重试。",
     "noProvider": "未配置可用的翻译提供者。请打开设置添加一个。",
     "translationFailed": "翻译失败",
-    "sidePanelNotAvailable": "此浏览器不支持侧边栏。请使用较新版本的 Chrome 或 Edge（Chromium）。",
+    "sidePanelNotAvailable": "此浏览器不支持侧边栏。",
     "cannotDetectWindow": "无法检测浏览器窗口。",
     "cannotOpenSidePanel": "无法打开侧边栏。"
   },

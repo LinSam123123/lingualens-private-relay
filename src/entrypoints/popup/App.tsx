@@ -5,25 +5,7 @@ import { SUPPORTED_LANGUAGES } from '../../shared/constants';
 import { AppLogo } from '../../shared/AppLogo';
 import { getTranslatorLanguages, updateTranslatorLanguages } from '../../shared/translator-languages';
 import { isTranslatableTabUrl } from '../../shared/translatable-tab';
-
-async function openExtensionSidePanel(): Promise<string | null> {
-  type ChromeSidePanel = {
-    windows: { getCurrent: () => Promise<{ id?: number }> };
-    sidePanel: { open: (opts: { windowId: number }) => Promise<void> };
-  };
-  const chromeApi = (globalThis as typeof globalThis & { chrome?: ChromeSidePanel }).chrome;
-  if (!chromeApi?.sidePanel?.open) {
-    return 'sidePanelNotAvailable';
-  }
-  const win = await chromeApi.windows.getCurrent();
-  if (win.id == null) return 'cannotDetectWindow';
-  try {
-    await chromeApi.sidePanel.open({ windowId: win.id });
-    return null;
-  } catch (err) {
-    return err instanceof Error ? err.message : 'cannotOpenSidePanel';
-  }
-}
+import { openExtensionSidePanel } from '../../shared/side-panel';
 
 const ERROR_KEYS: Record<string, string> = {
   NO_PROVIDER: 'popup.noProvider',
