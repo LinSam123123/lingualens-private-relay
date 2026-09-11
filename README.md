@@ -47,7 +47,7 @@ The build audit verifies MV3 permissions and scans generated text assets for leg
 
 - Content scripts never read or observe extension storage.
 - Background listeners register synchronously and await a single initialization barrier.
-- Background initialization restricts `storage.local` and, when supported, `storage.session` to trusted extension contexts before reading data.
+- Background initialization restricts `storage.local` and, when supported, `storage.session` to trusted extension contexts before reading data. If `storage.local.setAccessLevel` is missing or fails, local key storage is refused; session storage remains the default.
 - Content scripts submit only structured text tasks; Base URL, credentials, and Relay configuration come from protected Background state.
 - Model output is mapped by stable ID and written with `textContent`, never interpreted as HTML.
 - A stable `X-Translation-Request-Id` is sent on each translation batch. It is never silently removed if a proxy rejects it.

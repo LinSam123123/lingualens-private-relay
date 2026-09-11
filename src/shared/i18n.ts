@@ -1,5 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { canUseExtensionPageStorage } from './extension-page';
 import en from '../locales/en.json';
 import zhCN from '../locales/zh-CN.json';
 import zhTW from '../locales/zh-TW.json';
@@ -62,8 +63,10 @@ export function initI18n(): Promise<void> {
   initPromise = (async () => {
     let savedLang: string | undefined;
     try {
-      const result = await browser.storage.local.get(STORAGE_KEY);
-      savedLang = result[STORAGE_KEY] as string | undefined;
+      if (canUseExtensionPageStorage()) {
+        const result = await browser.storage.local.get(STORAGE_KEY);
+        savedLang = result[STORAGE_KEY] as string | undefined;
+      }
     } catch { /* ignore */ }
 
     const lng = savedLang || detectLanguage();
@@ -81,6 +84,7 @@ export function initI18n(): Promise<void> {
 
 export async function setUILanguage(lang: string): Promise<void> {
   await i18n.changeLanguage(lang);
+  if (!canUseExtensionPageStorage()) return;
   await browser.storage.local.set({ [STORAGE_KEY]: lang });
 }
 

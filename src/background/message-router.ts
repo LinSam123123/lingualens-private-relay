@@ -13,6 +13,7 @@ import type {
 } from '../shared/types';
 import { DEFAULT_SETTINGS, PRIVATE_RELAY_PROVIDER_ID } from '../shared/constants';
 import { clearApiKey, getApiKey, getSecretStatus, saveApiKey } from './secret-store';
+import { canUseLocalKeyStorage } from './storage-access';
 import { validateBaseUrl } from '../shared/url-policy';
 import {
   isOptionsSender,
@@ -59,7 +60,9 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     defaultProvider: PRIVATE_RELAY_PROVIDER_ID,
     fallbackProviders: [],
     providers: [{ ...relay, id: PRIVATE_RELAY_PROVIDER_ID, type: 'relay', enabled: true }],
-    keyStorageMode: settings.keyStorageMode === 'local' ? 'local' : 'session',
+    keyStorageMode: settings.keyStorageMode === 'local' && canUseLocalKeyStorage()
+      ? 'local'
+      : 'session',
   };
 }
 
@@ -83,11 +86,16 @@ export async function getSettings(): Promise<AppSettings> {
   if (legacyKey) {
     await saveApiKey(legacyKey, normalized.keyStorageMode);
     await browser.storage.local.set({ settings: normalized });
+  } else if (raw.keyStorageMode === 'local' && normalized.keyStorageMode !== 'local') {
+    await browser.storage.local.set({ settings: normalized });
   }
   return normalized;
 }
 
 export async function saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
+  if (partial.keyStorageMode === 'local' && !canUseLocalKeyStorage()) {
+    throw new Error('LOCAL_KEY_STORAGE_UNAVAILABLE');
+  }
   const current = await getSettings();
   const previousTranslationConfig = translationConfigFingerprint(current);
   const draftKey = partial.providers?.find((provider) => provider.apiKey)?.apiKey;
@@ -373,7 +381,11 @@ export async function handleMessage(
     }
     case 'SAVE_SETTINGS': {
       if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
-      return { success: true, data: await saveSettings(message.payload as Partial<AppSettings>) };
+      try {
+        return { success: true, data: await saveSettings(message.payload as Partial<AppSettings>) };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'SAVE_FAILED' };
+      }
     }
     case 'UPDATE_RUNTIME_SETTINGS': {
       const payload = message.payload as Partial<AppSettings> | undefined;

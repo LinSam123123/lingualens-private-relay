@@ -23,7 +23,11 @@ import { validateBaseUrl } from '../../shared/url-policy';
 export function App() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [secret, setSecret] = useState<SecretStatus>({ hasKey: false, storageMode: 'session' });
+  const [secret, setSecret] = useState<SecretStatus>({
+    hasKey: false,
+    storageMode: 'session',
+    localKeyStorageAvailable: true,
+  });
   const [apiKey, setApiKey] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -116,7 +120,13 @@ export function App() {
       if (granted && permissionOrigin !== oldPermission) {
         await browser.permissions.remove({ origins: [permissionOrigin] }).catch(() => false);
       }
-      setNotice({ ok: false, text: error instanceof Error ? error.message : 'SAVE_FAILED' });
+      const message = error instanceof Error ? error.message : 'SAVE_FAILED';
+      setNotice({
+        ok: false,
+        text: message === 'LOCAL_KEY_STORAGE_UNAVAILABLE'
+          ? t('options.localKeyStorageUnavailable')
+          : message,
+      });
     } finally {
       setSaving(false);
     }
@@ -206,13 +216,16 @@ export function App() {
             <Field label={t('options.keyStorage')}>
               <select className="input" value={settings.keyStorageMode} onChange={(e) => updateSettings({ keyStorageMode: e.target.value as AppSettings['keyStorageMode'] })}>
                 <option value="session">{t('options.keySession')}</option>
-                <option value="local">{t('options.keyLocal')}</option>
+                <option value="local" disabled={!secret.localKeyStorageAvailable}>{t('options.keyLocal')}</option>
               </select>
             </Field>
             <Field label={t('options.apiKey')}>
               <input className="input" type="password" autoComplete="new-password" value={apiKey} placeholder={secret.hasKey ? secret.maskedKey ?? 'Configured' : ''} onChange={(e) => { setApiKey(e.target.value); setDirty(true); }} />
             </Field>
           </div>
+          {!secret.localKeyStorageAvailable && (
+            <p className="text-xs text-gray-500 mt-2">{t('options.localKeyStorageUnavailable')}</p>
+          )}
           <div className="mt-3 flex items-center justify-between gap-3">
             <span className="text-xs text-gray-500">{secret.hasKey ? t('options.keyConfigured') : t('options.keyMissing')}</span>
             {secret.hasKey && <button type="button" className="btn-secondary" onClick={() => void clearKey()}>{t('options.clearKey')}</button>}

@@ -47,6 +47,7 @@
     "keyStorage": "Key storage",
     "keySession": "Browser session (recommended)",
     "keyLocal": "Protected local storage",
+    "localKeyStorageUnavailable": "This browser cannot restrict content-script access to local storage, so protected local key storage is unavailable. Session storage remains the default.",
     "keyConfigured": "A key is configured. Enter a new key only to replace it.",
     "keyMissing": "No API key is configured.",
     "clearKey": "Clear key",

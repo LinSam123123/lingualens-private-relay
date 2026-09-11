@@ -119,6 +119,7 @@ export interface AppSettings {
 export interface SecretStatus {
   hasKey: boolean;
   storageMode: SecretStorageMode;
+  localKeyStorageAvailable: boolean;
   maskedKey?: string;
 }
 
