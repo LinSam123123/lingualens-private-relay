@@ -31,6 +31,8 @@ npm run build:firefox
 
 临时附加组件会在 Firefox 完全退出后被移除，下次需要重新载入。当前预览构建未完成 Firefox 全量手动矩阵；遇到浏览器差异时应记录并放入第二阶段适配，不影响 Chrome/Edge MVP。
 
+Firefox 140+ 可能显示数据收集说明。Manifest 声明 `websiteContent`，因为翻译会把网页正文发到你配置的 Relay，而不是因为项目有遥测。`required: ["none"]` 仅适用于完全不向扩展或本地浏览器之外传输数据的附加组件。
+
 ## 2. 中转站要求
 
 Base URL 必须满足：
@@ -67,6 +69,8 @@ Base URL 必须满足：
 更换 Base URL 时，扩展先申请新 origin；保存失败会移除刚申请的权限；保存成功后再移除旧 origin。模型刷新和连接测试只能针对已保存的配置运行，避免绕过用户授权手势。
 
 Key 默认存入 `storage.session`，浏览器会话结束后可能丢失。选择本地模式后，Key 存入限制为 trusted extension contexts 的 `storage.local`。设置页只能读取 `hasKey` 和脱敏状态，不能读回明文 Key。
+
+Firefox 目前不支持 `storage.local.setAccessLevel`（MDN：`version_added: false`，Bug 1724754）。`storage.session` 默认仅可信扩展上下文可访问，因此默认 session Key 仍保持隔离。受保护的 local Key 在无法限制内容脚本读取 `storage.local` 时会被拒绝，设置页会禁用该选项；不会为了兼容而把 Key 写入未隔离的 local。Content Script 也不再从网页上下文直接读取扩展 storage（界面语言只在扩展页使用 storage）。
 
 ## 4. 默认限制
 

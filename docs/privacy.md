@@ -20,7 +20,7 @@ The extension does not contact legacy LinguaLens providers at runtime. Model ref
 | Translation cache and sidepanel history | `storage.session` | Current browser session only |
 | Task journal | `storage.session` | Same-session SW recovery, with stale-entry cleanup |
 
-Content scripts cannot read or observe extension storage. Settings pages receive only public configuration and a masked Secret status.
+Content scripts cannot read or observe extension storage. Settings pages receive only public configuration and a masked Secret status. Firefox does not implement `storage.local.setAccessLevel`; this build therefore refuses protected local key storage there instead of writing the key into content-script-readable `storage.local`. Session keys remain available because Firefox `storage.session` is trusted-context-only by default.
 
 Task journals contain IDs, status, attempts, character/request budgets, and timestamps. They do not contain webpage source text. `storage.session` recovery does not survive every browser exit, extension reload, update, disable, or page reload.
 
@@ -29,6 +29,8 @@ Task journals contain IDs, status, attempts, character/request budgets, and time
 The extension declares broad optional HTTPS/loopback patterns only so Chrome can present a user-triggered permission request. The settings page requests the validated concrete Relay origin when **Save and authorize host** is clicked and removes the obsolete origin after a successful change.
 
 Content-script access is used for selection and page-snapshot translation. `storage`, `activeTab`, `sidePanel`, `contextMenus`, and `scripting` support the corresponding extension features.
+
+Firefox's `data_collection_permissions` declares `websiteContent` because translating a page or selection transmits visible website text to the user-configured Relay. Mozilla defines data transmission as any data handled outside the add-on or local browser. `"none"` would only be correct if the extension collected or transmitted no data; the absence of telemetry does not satisfy that definition. This private build is not an AMO listing, but the declaration is kept honest for Firefox 140+ permission UI.
 
 ## Deletion
 
