@@ -10,7 +10,7 @@
 
 - Chrome/Edge MV3 第一阶段功能已实现。
 - Chrome 核心手动矩阵已完成并通过。
-- Edge 尚未开始手动兼容验收。
+- Edge 基础兼容冒烟已由用户报告通过：加载 `.output/chrome-mv3`、保存并授权 loopback、`/fixture` 整页翻译、恢复原文。这些是界面观察，没有 Mock Relay fetch 计数；未测 Responses 切换，也未重复 Chrome 异常矩阵。
 - Firefox MV2 预览冒烟已由用户报告通过：保存并授权、整页翻译、恢复原文、Popup 打开侧边栏。这些是界面观察，没有 Mock Relay fetch 计数，也不是 Chrome 异常矩阵的复测。
 - Firefox 仍未做：划词翻译、local Key 禁用项、安装提示中的 `websiteContent` 声明、429/超时/SW 等异常路径。
 - Firefox 不支持 `storage.*.setAccessLevel`。自动测试覆盖：初始化不会因此失败；local Key 被拒绝；session Key 仍可用。
@@ -57,22 +57,31 @@ Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Ch
 | 设置页禁用 local Key | 未测 | |
 | `websiteContent` 安装提示 | 未测 | |
 
+## Edge 基础兼容冒烟
+
+与 Chrome 共用 `.output/chrome-mv3`。Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Chrome 异常矩阵。
+
+| 场景 | 结果 | 关键证据 |
+| --- | --- | --- |
+| 加载解压产物 | 通过（用户报告） | `edge://extensions` 加载 `chrome-mv3` |
+| 保存并授权 loopback | 通过（用户报告） | 设置页授权；缺权限 API 日志 |
+| Chat Completions 整页翻译 | 通过（用户报告） | `/fixture` 译文写回；缺批次/DOM 计数 |
+| 恢复原文 | 通过（用户报告） | 界面观察已恢复；缺“无新增请求”计数 |
+| Responses 整页翻译 | 未测 | 本轮未要求切换协议 |
+
 ## 尚待完成
 
-### Edge 基础兼容验收
+未阻塞个人私有使用。若继续预览：
 
-1. 在 `edge://extensions` 加载 `.output/chrome-mv3`。
-2. 使用 `http://127.0.0.1:17891/ok/v1`、模型 `mock-model` 验证 Chat Completions。
-3. 切换 Responses，恢复原文并再次验证整页翻译。
-4. 验证 Edge 中的设置保存、具体 origin 授权和恢复原文。
-
-Edge 只做基础兼容验收，不重复 Chrome 的全部异常矩阵，除非发现浏览器差异。
+1. Firefox 划词翻译（无 `scripting`）。
+2. Firefox 设置页确认 local Key 已禁用。
+3. Edge 切换 Responses 后再做一次整页翻译与恢复原文。
 
 ### 收尾
 
-1. 完成 Edge 后更新本文件。
-2. 再运行一次 `npm run verify`。
-3. 审查最终 Git 状态与构建产物。
+1. Edge 基础冒烟已记入本文件。
+2. `npm run verify` 已于 2026-09-11 通过（测试、TypeScript、Chrome production build、产物审计）。
+3. 工作区仅文档变更；`.output/` 不入库。产物：`.output/chrome-mv3`、`.output/firefox-mv2`。
 
 ## 继续工作时的起点
 
