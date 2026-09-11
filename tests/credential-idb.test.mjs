@@ -19,6 +19,9 @@ import {
   normalizeSecretStorageMode,
   otherSecretModes,
 } from '../src/background/secret-policy.ts';
+import {
+  publicCredentialIsolationProbe,
+} from '../src/shared/credential-isolation.ts';
 
 test.afterEach(() => {
   resetPersistentCredentialStoreForTests();
@@ -91,6 +94,22 @@ test('failed persistent writes do not enable unprotected local fallback', async 
   }), false);
   assert.equal(canUsePersistentKeyStorage(), false);
   await assert.rejects(() => writePersistentApiKey('fake-key-cccc'), /PERSISTENT_KEY_STORAGE_UNAVAILABLE/);
+});
+
+test('content-script isolation probe never includes a raw key', () => {
+  const published = publicCredentialIsolationProbe({
+    origin: 'http://127.0.0.1:17891',
+    indexedDbAvailable: true,
+    hasRelayApiKeyRecord: false,
+    apiKey: 'fake-key-should-not-leak',
+    relayApiKeyRecord: { id: 'relayApiKey', value: 'fake-key-should-not-leak' },
+  });
+  assert.equal(published.origin, 'http://127.0.0.1:17891');
+  assert.equal(published.isMozExtensionOrigin, false);
+  assert.equal(published.hasRelayApiKeyRecord, false);
+  assert.equal('apiKey' in published, false);
+  assert.equal('relayApiKeyRecord' in published, false);
+  assert.equal(JSON.stringify(published).includes('fake-key-should-not-leak'), false);
 });
 
 test('secret mode policy never treats persistent as unprotected local', () => {

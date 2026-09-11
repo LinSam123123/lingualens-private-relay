@@ -141,7 +141,8 @@ export type MessageType =
   | { type: 'GET_TASK_RECOVERY'; payload: { taskId: string; sessionId: string } }
   | { type: 'SAVE_SETTINGS'; payload: Partial<AppSettings> }
   | { type: 'UPDATE_RUNTIME_SETTINGS'; payload: RuntimeSettingsPatch }
-  | { type: 'CLEAR_SECRET' };
+  | { type: 'CLEAR_SECRET' }
+  | { type: 'PROBE_CONTENT_SCRIPT_ISOLATION'; payload: { tabId: number } };
 
 export type MessageResponse<T = unknown> =
   | { success: true; data: T }

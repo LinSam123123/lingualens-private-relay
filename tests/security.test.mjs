@@ -81,6 +81,14 @@ test('Firefox options sender is recognized by options.html path', () => {
     isOptionsSender({ id: extensionId, url: 'moz-extension://extension-id/options.html' }, extensionId),
     true,
   );
+  assert.equal(
+    isOptionsSender({
+      id: extensionId,
+      tab: { id: 1 },
+      url: 'http://127.0.0.1:17891/fixture',
+    }, extensionId),
+    false,
+  );
 });
 
 test('Firefox preview manifest requests websiteContent instead of claiming no transmission', async () => {
@@ -120,6 +128,8 @@ test('secret status is options-only and no message returns a raw API key', async
   const router = await readFile(new URL('../src/background/message-router.ts', import.meta.url), 'utf8');
   const types = await readFile(new URL('../src/shared/types.ts', import.meta.url), 'utf8');
   assert.match(router, /case 'GET_SECRET_STATUS':\s*\{[\s\S]*?OPTIONS_ONLY/);
+  assert.match(router, /case 'PROBE_CONTENT_SCRIPT_ISOLATION':\s*\{[\s\S]*?OPTIONS_ONLY/);
+  assert.match(router, /publicCredentialIsolationProbe/);
   assert.equal(/GET_API_KEY/.test(router), false);
   assert.equal(/GET_API_KEY/.test(types), false);
   assert.match(router, /stripSecrets/);

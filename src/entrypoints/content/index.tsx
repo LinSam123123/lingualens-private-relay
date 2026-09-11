@@ -7,6 +7,10 @@ import {
   markContextMenuInExtensionUI,
 } from './selection-ui-guard';
 import { initI18n } from '../../shared/i18n';
+import {
+  probeUntrustedIndexedDb,
+  publicCredentialIsolationProbe,
+} from '../../shared/credential-isolation';
 import './style.css';
 
 const OVERLAY_Z = '2147483647';
@@ -200,6 +204,15 @@ export default defineContentScript({
 
     // Listen for commands from popup / background / keyboard shortcuts
     browser.runtime.onMessage.addListener((message: Record<string, unknown>, _sender, sendResponse) => {
+      if (message.type === 'PROBE_CREDENTIAL_ISOLATION') {
+        void probeUntrustedIndexedDb()
+          .then((data) => sendResponse({ ok: true, data: publicCredentialIsolationProbe(data) }))
+          .catch((error) => sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : 'PROBE_FAILED',
+          }));
+        return true;
+      }
       switch (message.type) {
         case 'PING':
           sendResponse({ ok: true });

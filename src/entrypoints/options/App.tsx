@@ -23,6 +23,7 @@ import {
   hostPermissionQuery,
   resolveHostPermissionBrowser,
 } from '../../shared/url-policy';
+import type { PublicCredentialIsolationProbe } from '../../shared/credential-isolation';
 
 export function App() {
   const { t } = useTranslation();
@@ -41,6 +42,7 @@ export function App() {
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [diagnostic, setDiagnostic] = useState<ConnectionTestResult | null>(null);
+  const [isolationProbe, setIsolationProbe] = useState<PublicCredentialIsolationProbe | null>(null);
   const [uiLang, setUiLang] = useState(getUILanguage());
   const originalPermissionRef = useRef<string | null>(null);
 
@@ -183,6 +185,23 @@ export function App() {
     setNotice({ ok: true, text: t('options.keyCleared') });
   };
 
+  const probeContentScriptIsolation = async () => {
+    setNotice(null);
+    setIsolationProbe(null);
+    const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+    const response: MessageResponse<PublicCredentialIsolationProbe> = await browser.runtime.sendMessage({
+      type: 'PROBE_CONTENT_SCRIPT_ISOLATION',
+      payload: { tabId: tab?.id },
+    });
+    if (!response.success) {
+      setNotice({ ok: false, text: response.error === 'CONTENT_SCRIPT_UNAVAILABLE'
+        ? t('options.contentIsolationUnavailable')
+        : response.error });
+      return;
+    }
+    setIsolationProbe(response.data);
+  };
+
   const clearCache = async () => {
     const response: MessageResponse = await browser.runtime.sendMessage({ type: 'CLEAR_CACHE' });
     setNotice(response.success
@@ -248,6 +267,17 @@ export function App() {
           )}
           {resolveHostPermissionBrowser() === 'firefox' && !secret.persistentKeyStorageAvailable && (
             <p className="text-xs text-amber-700 mt-2">{t('options.persistentKeyStorageUnavailable')}</p>
+          )}
+          {resolveHostPermissionBrowser() === 'firefox' && (
+            <div className="mt-3">
+              <button type="button" className="btn-secondary" onClick={() => void probeContentScriptIsolation()}>
+                {t('options.probeContentIsolation')}
+              </button>
+              <p className="text-xs text-gray-500 mt-2">{t('options.probeContentIsolationHelp')}</p>
+              {isolationProbe && (
+                <pre className="mt-2 text-xs bg-gray-50 border border-gray-200 rounded-md p-3 overflow-x-auto">{JSON.stringify(isolationProbe, null, 2)}</pre>
+              )}
+            </div>
           )}
           <div className="mt-3 flex items-center justify-between gap-3">
             <span className="text-xs text-gray-500">{secret.hasKey ? t('options.keyConfigured') : t('options.keyMissing')}</span>

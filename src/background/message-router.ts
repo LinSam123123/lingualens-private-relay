@@ -17,6 +17,7 @@ import { canUsePersistentKeyStorage } from './credential-idb';
 import { normalizeSecretStorageMode } from './secret-policy';
 import { canUseLocalKeyStorage } from './storage-access';
 import { validateBaseUrl } from '../shared/url-policy';
+import { publicCredentialIsolationProbe } from '../shared/credential-isolation';
 import {
   isOptionsSender,
   isOwnExtensionSender,
@@ -407,6 +408,19 @@ export async function handleMessage(
         patch.selectionModifierKey = payload.selectionModifierKey;
       }
       return { success: true, data: await saveSettings(patch) };
+    }
+    case 'PROBE_CONTENT_SCRIPT_ISOLATION': {
+      if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
+      const tabId = Number((message.payload as { tabId?: number } | undefined)?.tabId);
+      if (!Number.isInteger(tabId) || tabId < 0) return { success: false, error: 'TAB_REQUIRED' };
+      try {
+        const response = await browser.tabs.sendMessage(tabId, { type: 'PROBE_CREDENTIAL_ISOLATION' }) as {
+          data?: Record<string, unknown>;
+        };
+        return { success: true, data: publicCredentialIsolationProbe(response?.data ?? {}) };
+      } catch {
+        return { success: false, error: 'CONTENT_SCRIPT_UNAVAILABLE' };
+      }
     }
     case 'CLEAR_SECRET':
       if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
