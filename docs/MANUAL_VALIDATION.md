@@ -11,11 +11,10 @@
 - Chrome/Edge MV3 第一阶段功能已实现。
 - Chrome 核心手动矩阵已完成并通过。
 - Edge 尚未开始手动兼容验收。
-- Firefox MV2 预览仍未完成全量手动矩阵；不要把 Chrome 矩阵结果套到 Firefox。
-- Firefox 不支持 `storage.*.setAccessLevel`。自动测试覆盖：初始化不会因此失败；local Key 被拒绝；session Key 仍可用。设置页 local 选项禁用仍缺本次实测记录。
-- Firefox 保存并授权 loopback：用户报告已通过。证据是授权提示不再出现 `http://127.0.0.1:17891/*` 未声明错误；没有 Mock Relay fetch 计数，也未证明整页翻译、恢复原文、划词或 Sidebar。
-- Popup 侧边栏按钮已改为：Chrome 仍走 `sidePanel.open`，Firefox 走 `sidebarAction.open`。自动测试覆盖策略选择；真实 Firefox 点击尚未验证。
-- Firefox Manifest 的 `data_collection_permissions.required` 现为 `websiteContent`。Mozilla 将“向扩展或本地浏览器之外传输数据”视为 data transmission；向用户配置的 Relay 发送网页正文符合 `websiteContent`，不能因为没有遥测就写 `none`。该声明尚未在真实 Firefox 安装提示中目视确认。
+- Firefox MV2 预览冒烟已由用户报告通过：保存并授权、整页翻译、恢复原文、Popup 打开侧边栏。这些是界面观察，没有 Mock Relay fetch 计数，也不是 Chrome 异常矩阵的复测。
+- Firefox 仍未做：划词翻译、local Key 禁用项、安装提示中的 `websiteContent` 声明、429/超时/SW 等异常路径。
+- Firefox 不支持 `storage.*.setAccessLevel`。自动测试覆盖：初始化不会因此失败；local Key 被拒绝；session Key 仍可用。
+- Firefox Manifest 的 `data_collection_permissions.required` 为 `websiteContent`。不能因为没有遥测就写 `none`。该声明尚未在真实 Firefox 安装提示中目视确认。
 - 最新完整自动验证已通过：测试、TypeScript、Chrome production build 和产物审计。
 - 动态 DOM、多预设、持久缓存、Firefox 完整适配、旧 Provider 物理清理和依赖升级仍属于后续阶段。
 
@@ -44,15 +43,21 @@
 | SW 中断 queued 恢复 | 通过 | 16/17 + 1 unknown；总计 16 批，无第 17 次重复请求 |
 | 会话缓存 | 通过 | 缓存命中不调用 fetch；配置或 Key 变化时清缓存 |
 
+## Firefox 预览冒烟
+
+Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Chrome 异常矩阵。
+
+| 场景 | 结果 | 关键证据 |
+| --- | --- | --- |
+| 保存并授权 loopback | 通过（用户报告） | 不再报 `http://127.0.0.1:17891/*` 未声明；缺 fetch 计数 |
+| Chat Completions 整页翻译 | 通过（用户报告） | `/fixture` 译文写回；缺批次/DOM 计数 |
+| 恢复原文 | 通过（用户报告） | 界面观察已恢复；缺“无新增请求”计数 |
+| Popup 打开侧边栏 | 通过（用户报告） | `sidebarAction.open` 打开侧栏；未测历史持久化 |
+| 划词翻译（无 scripting） | 未测 | |
+| 设置页禁用 local Key | 未测 | |
+| `websiteContent` 安装提示 | 未测 | |
+
 ## 尚待完成
-
-### Firefox 预览冒烟（不要重复 Chrome 异常矩阵）
-
-1. 重新临时载入 `.output/firefox-mv2/manifest.json`（侧边栏代码已更新）。
-2. Mock Relay 保持 `http://127.0.0.1:17891/ok/v1`、`mock-model`、session Key。
-3. 打开 `http://127.0.0.1:17891/fixture`，整页翻译一次，再恢复原文。
-4. 从 Popup 打开侧边栏，确认能显示，不必测历史持久化。
-5. 可选：划词翻译一次（无 `scripting` 权限）。
 
 ### Edge 基础兼容验收
 
