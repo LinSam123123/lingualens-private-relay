@@ -56,6 +56,7 @@ Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Ch
 | 划词翻译（无 scripting） | 未测 | |
 | 设置页禁用 local Key | 未测 | |
 | `websiteContent` 安装提示 | 未测 | |
+| 扩展隔离的持久 Key | 待测 | 假 Key；见下方步骤。临时载入退出后消失不能算存储失败 |
 
 ## Edge 基础兼容冒烟
 
@@ -73,9 +74,10 @@ Mock Relay：`http://127.0.0.1:17891/ok/v1`，模型 `mock-model`。未重复 Ch
 
 未阻塞个人私有使用。若继续预览：
 
-1. Firefox 划词翻译（无 `scripting`）。
-2. Firefox 设置页确认 local Key 已禁用。
-3. Edge 切换 Responses 后再做一次整页翻译与恢复原文。
+1. Firefox 持久 Key（假 Key）：保存为“扩展隔离的持久存储”→ 重新加载附加组件（不要完全退出）→ 设置页仍显示 hasKey → 再完全退出 Firefox 时，若是临时载入，扩展会消失，不能据此判断 IDB 失败。
+2. 打开 `http://127.0.0.1:17891/credential-probe`，确认页面 origin 不是 `moz-extension:`，且 `relayApiKeyRecord` 不是保存的假 Key。
+3. Firefox 划词翻译（无 `scripting`）。
+4. Edge 切换 Responses 后再做一次整页翻译与恢复原文。
 
 ### 收尾
 

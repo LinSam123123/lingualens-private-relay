@@ -71,9 +71,11 @@ Chrome 申请的是精确 origin（非默认端口会写入口径）。Firefox �
 
 更换 Base URL 时，扩展先申请新权限；保存失败会移除刚申请的权限；保存成功后再移除旧权限。Firefox 上只改端口时新旧模式相同，不会移除该主机权限。模型刷新和连接测试只能针对已保存的配置运行，避免绕过用户授权手势。
 
-Key 默认存入 `storage.session`，浏览器会话结束后可能丢失。选择本地模式后，Key 存入限制为 trusted extension contexts 的 `storage.local`。设置页只能读取 `hasKey` 和脱敏状态，不能读回明文 Key。
+Key 默认存入 `storage.session`，浏览器会话结束后可能丢失。Chrome/Edge 可选受保护的 `storage.local`（`setAccessLevel` 限制为 trusted extension contexts）。设置页只能读取 `hasKey`、存储模式和脱敏状态，不能读回明文 Key。没有 `GET_API_KEY` 消息。
 
-Firefox 目前不支持 `storage.local.setAccessLevel`（MDN：`version_added: false`，Bug 1724754）。`storage.session` 默认仅可信扩展上下文可访问，因此默认 session Key 仍保持隔离。受保护的 local Key 在无法限制内容脚本读取 `storage.local` 时会被拒绝，设置页会禁用该选项；不会为了兼容而把 Key 写入未隔离的 local。Content Script 也不再从网页上下文直接读取扩展 storage（界面语言只在扩展页使用 storage）。
+Firefox 不支持 `storage.local.setAccessLevel`，因此仍拒绝用未受保护的 `storage.local` 存明文 Key。Firefox 可改用“扩展隔离的持久存储”：Background 把 Key 写入本扩展 `moz-extension://` origin 的 IndexedDB。网页和 Content Script 的 IndexedDB 属于页面 origin，不是这份库。这不是系统密码库，不能抵御本机恶意软件、配置文件被复制或扩展失陷。存储失败会明确报错，不会静默写到 `storage.local`。
+
+临时载入（`about:debugging`）会在 Firefox **完全退出**后被移除，IndexedDB 默认一并删除。这是附加组件生命周期，不是凭据存储失败。跨重启保留 Key 需要扩展在重启后仍处于安装状态。同一临时载入会话内可用“重新加载”验证读写；`gecko.id` 让重新加载保持同一 origin。隔离探针页：`http://127.0.0.1:17891/credential-probe`（应显示页面 origin，且 `relayApiKeyRecord` 不是你保存的假 Key）。
 
 ## 4. 默认限制
 

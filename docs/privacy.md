@@ -16,11 +16,12 @@ The extension does not contact legacy LinguaLens providers at runtime. Model ref
 |---|---|---|
 | Public Relay settings and UI preferences | `storage.local` | Until cleared or uninstalled |
 | API key, default mode | `storage.session` | Current browser session only |
-| API key, optional persistent mode | protected `storage.local` | Until cleared or uninstalled |
+| API key, optional persistent mode (Chrome/Edge) | protected `storage.local` | Until cleared or uninstalled |
+| API key, optional persistent mode (Firefox) | extension-origin IndexedDB (`moz-extension://`) | Until cleared, uninstalled, or a temporary add-on is unloaded |
 | Translation cache and sidepanel history | `storage.session` | Current browser session only |
 | Task journal | `storage.session` | Same-session SW recovery, with stale-entry cleanup |
 
-Content scripts cannot read or observe extension storage. Settings pages receive only public configuration and a masked Secret status. Firefox does not implement `storage.local.setAccessLevel`; this build therefore refuses protected local key storage there instead of writing the key into content-script-readable `storage.local`. Session keys remain available because Firefox `storage.session` is trusted-context-only by default.
+Content scripts cannot read or observe extension storage. Settings pages receive only public configuration and a masked Secret status; `GET_SECRET_STATUS` is options-only and never returns the raw key. Firefox does not implement `storage.local.setAccessLevel`; this build therefore refuses unprotected `storage.local` for keys. Firefox may persist a key in IndexedDB owned by the extension origin and read only from the background script. That store is not a password manager and does not resist local malware, a copied profile, or a compromised extension. Temporary add-ons are removed when Firefox quits, which deletes the database.
 
 Task journals contain IDs, status, attempts, character/request budgets, and timestamps. They do not contain webpage source text. `storage.session` recovery does not survive every browser exit, extension reload, update, disable, or page reload.
 

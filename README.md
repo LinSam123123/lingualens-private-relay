@@ -13,7 +13,7 @@ This edition has one translation backend: a user-configured private Relay exposi
 - 25-second default timeout, concurrency 2, 100,000-character and 100-fetch page budgets
 - Conservative retries and explicit handling of `interrupted/unknown`
 - Session-only translation cache and sidepanel history
-- API key isolation in `storage.session` or protected `storage.local`
+- API key isolation in `storage.session`, Chrome/Edge protected `storage.local`, or Firefox extension-origin IndexedDB
 - Exact optional host permission requested by **Save and authorize host**
 
 Dynamic DOM translation, multiple presets, persistent cache, complete Firefox support, provider source cleanup, and dependency upgrades are intentionally deferred.
