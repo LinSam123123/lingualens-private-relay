@@ -2,6 +2,8 @@
 
 A private Chrome/Edge MV3 build of [q-jade/lingualens](https://github.com/q-jade/lingualens), based on upstream commit `c18d1a5`. The upstream Git history and MIT license are preserved.
 
+**AMO reviewers:** follow **[BUILD.md](BUILD.md)**. One command: `node scripts/amo-build.mjs`. Requires Node.js 20+ and npm 10+ on Windows, macOS, or Linux. Output: `.output/firefox-mv2`.
+
 This edition has one translation backend: a user-configured private Relay exposing an OpenAI-compatible Chat Completions or Responses API. Legacy provider source files remain temporarily for upstream compatibility, but they are unreachable from settings, runtime provider creation, and the production manifest.
 
 ## MVP scope

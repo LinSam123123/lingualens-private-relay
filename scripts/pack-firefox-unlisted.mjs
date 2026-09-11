@@ -12,6 +12,24 @@ const uploadName = `lingualens-private-${pkg.version}-firefox.zip`;
 const sourceName = `lingualens-private-${pkg.version}-firefox-source.zip`;
 const wxtUpload = path.join(root, '.output', `lingualens-${pkg.version}-firefox.zip`);
 
+const sourcePaths = [
+  'BUILD.md',
+  'README.md',
+  'PRIVATE_SETUP.md',
+  'LICENSE',
+  'package.json',
+  'package-lock.json',
+  'wxt.config.ts',
+  'tsconfig.json',
+  'postcss.config.js',
+  'tailwind.config.js',
+  'src',
+  'tests',
+  'scripts',
+  'public',
+  'docs',
+];
+
 const uploadForbidden = [
   /api\.openai\.com/i,
   /\bsk-[A-Za-z0-9_-]{20,}\b/,
@@ -41,14 +59,16 @@ function scanTextTree(directory, label, patterns) {
   }
 }
 
+function assertPosixZipPaths(zipPath, label) {
+  const listing = execFileSync('tar', ['-tf', zipPath], { encoding: 'utf8' });
+  assert.equal(listing.includes('\\'), false, `${label} must use forward-slash zip paths for AMO`);
+  return listing;
+}
+
 rmSync(path.join(root, 'dist'), { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
-if (process.env.SKIP_FIREFOX_BUILD !== '1') {
-  execFileSync('npm', ['run', 'zip:firefox'], { cwd: root, stdio: 'inherit', shell: true });
-} else {
-  execFileSync('npm', ['run', 'build:firefox'], { cwd: root, stdio: 'inherit', shell: true });
-}
+execFileSync('npm', ['run', 'zip:firefox'], { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' });
 
 const manifest = JSON.parse(readFileSync(path.join(extensionDir, 'manifest.json'), 'utf8'));
 assert.equal(manifest.version, pkg.version);
@@ -62,34 +82,27 @@ assert.equal(manifest.permissions.includes('scripting'), false);
 scanTextTree(extensionDir, 'Firefox build', uploadForbidden);
 scanTextTree(path.join(root, 'src'), 'Source', sourceForbidden);
 
-if (!process.env.SKIP_FIREFOX_BUILD) {
-  copyFileSync(wxtUpload, path.join(outDir, uploadName));
-} else {
-  execFileSync('powershell.exe', [
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', path.join('scripts', 'zip-dir.ps1'),
-    '-Src', extensionDir,
-    '-Dst', path.join(outDir, uploadName),
-  ], { cwd: root, stdio: 'inherit' });
-}
+copyFileSync(wxtUpload, path.join(outDir, uploadName));
+assertPosixZipPaths(path.join(outDir, uploadName), 'Upload zip');
 
-execFileSync('powershell.exe', [
-  '-NoProfile',
-  '-ExecutionPolicy', 'Bypass',
-  '-File', path.join('scripts', 'zip-source.ps1'),
-  '-Root', root,
-  '-Dst', path.join(outDir, sourceName),
-], { cwd: root, stdio: 'inherit' });
+const sourceZip = path.join(outDir, sourceName);
+execFileSync('git', ['archive', '--format=zip', '-o', sourceZip, 'HEAD', ...sourcePaths], {
+  cwd: root,
+  stdio: 'inherit',
+});
+const sourceListing = assertPosixZipPaths(sourceZip, 'Source zip');
+assert.match(sourceListing, /^BUILD.md$/m);
+assert.match(sourceListing, /scripts\/amo-build.mjs/);
+assert.match(sourceListing, /src\/background\/credential-idb.ts/);
 
 writeFileSync(path.join(outDir, 'README.txt'), `Upload to Mozilla Developer Hub as Unlisted / On your own.
 Extension ID: lingualens-private-relay@local
 Version: ${pkg.version}
 Files:
-  ${uploadName}
-  ${sourceName}
+  ${uploadName}   Hub "upload your add-on"
+  ${sourceName}  Hub "source code" (POSIX zip paths; includes BUILD.md)
+Reviewer command: node scripts/amo-build.mjs
 Do not upload API keys. Confirm with the owner before submitting.
-See docs/FIREFOX_UNLISTED_SIGNING.md
 `);
 
 console.log(`Firefox unlisted packages written to ${outDir}`);

@@ -7,6 +7,9 @@
     "url": "https://github.com/q-jade/lingualens.git"
   },
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -16,6 +19,7 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip --browser firefox",
     "pack:firefox-unlisted": "node scripts/pack-firefox-unlisted.mjs",
+    "amo-build": "node scripts/amo-build.mjs",
     "test:security": "node --experimental-strip-types --test tests/security.test.mjs",
     "test:storage-access": "node --experimental-strip-types --test tests/storage-access.test.mjs",
     "test:side-panel": "node --experimental-strip-types --test tests/side-panel.test.mjs",

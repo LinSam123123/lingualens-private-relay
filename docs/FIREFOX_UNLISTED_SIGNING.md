@@ -18,9 +18,27 @@ npm run pack:firefox-unlisted
 生成（`dist/` 不入库）：
 
 - `dist/firefox-unlisted/lingualens-private-<version>-firefox.zip` — 提交给 Hub 的扩展包
-- `dist/firefox-unlisted/lingualens-private-<version>-firefox-source.zip` — 审核用源码（WXT/Vite 打包，必须附源码）
+- `dist/firefox-unlisted/lingualens-private-<version>-firefox-source.zip` — 审核用源码（`git archive`，路径为正斜杠）
+
+源码 zip 必须用正斜杠（`docs/BUILD.md`）。Windows `Compress-Archive` 会写成 `docs\BUILD.md`，AMO 会报 `Invalid file name in archive`。
+
+源码 zip 根目录含 `BUILD.md` 与 `scripts/amo-build.mjs`。审核一键构建：
+
+```bash
+node scripts/amo-build.mjs
+```
 
 提交前请打开这两个 zip，确认没有真实 Key、私人 Relay 配置、日志或 AMO JWT。
+
+Hub 源码页可粘贴：
+
+```text
+Unlisted personal Relay translator. Source is TypeScript.
+Build: node scripts/amo-build.mjs
+Requires Node.js 20+ (last built on v24.14.0) and npm 10+ on Windows, macOS, or Linux.
+Output: .output/firefox-mv2
+websiteContent: page/selection text is sent only to the user-configured Relay. No telemetry.
+```
 
 ## Developer Hub 最短步骤
 
