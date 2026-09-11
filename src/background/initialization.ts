@@ -1,4 +1,5 @@
 import { initializeTaskJournal } from './task-journal';
+import { initializePersistentCredentialStore } from './credential-idb';
 import { canUseLocalKeyStorage, restrictStorageAccess } from './storage-access';
 import { removeLocalApiKeyIfUnrestricted } from './secret-store';
 
@@ -7,6 +8,7 @@ let initializationError: string | null = null;
 async function initialize(): Promise<void> {
   await restrictStorageAccess();
   if (!canUseLocalKeyStorage()) await removeLocalApiKeyIfUnrestricted();
+  await initializePersistentCredentialStore();
   await initializeTaskJournal();
 }
 

@@ -25,6 +25,63 @@ const fixturePage = `<!doctype html>
 const longFixtureParagraphs = Array.from({ length: 16 }, (_, index) => `
     <p id="long-${index + 1}">Batch ${index + 1}: This deliberately repetitive paragraph supplies enough stable text for manual scheduler validation. It lets the tester pause while some requests are active and other batches remain queued, then resume without replaying completed or unknown work. The paragraph stays independent so translation progress can be counted directly.</p>`).join('');
 
+const credentialProbePage = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>LinguaLens Credential Isolation Probe</title></head>
+<body>
+  <main>
+    <h1>Page-origin IndexedDB probe</h1>
+    <p>This page origin is not moz-extension. Opening the extension credential database name here must not reveal the API key.</p>
+    <pre id="origin"></pre>
+    <pre id="result">running…</pre>
+  </main>
+  <script>
+    const DB_NAME = 'lingualens-private-credentials';
+    const originEl = document.getElementById('origin');
+    const resultEl = document.getElementById('result');
+    originEl.textContent = location.origin;
+    Promise.resolve()
+      .then(async () => {
+        const listed = typeof indexedDB.databases === 'function'
+          ? await indexedDB.databases()
+          : [];
+        const request = indexedDB.open(DB_NAME, 1);
+        const db = await new Promise((resolve, reject) => {
+          request.onupgradeneeded = () => {
+            if (!request.result.objectStoreNames.contains('secrets')) {
+              request.result.createObjectStore('secrets', { keyPath: 'id' });
+            }
+          };
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const names = Array.from(db.objectStoreNames);
+        let relayApiKey = null;
+        if (names.includes('secrets')) {
+          relayApiKey = await new Promise((resolve, reject) => {
+            const tx = db.transaction('secrets', 'readonly');
+            const get = tx.objectStore('secrets').get('relayApiKey');
+            get.onsuccess = () => resolve(get.result ?? null);
+            get.onerror = () => reject(get.error);
+          });
+        }
+        db.close();
+        resultEl.textContent = JSON.stringify({
+          pageOrigin: location.origin,
+          isMozExtension: location.origin.startsWith('moz-extension://'),
+          listedDatabaseNames: listed.map((entry) => entry?.name),
+          openedDatabase: DB_NAME,
+          objectStores: names,
+          relayApiKeyRecord: relayApiKey,
+        }, null, 2);
+      })
+      .catch((error) => {
+        resultEl.textContent = String(error);
+      });
+  </script>
+</body>
+</html>`;
+
 const longFixturePage = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>LinguaLens Multi-batch Fixture</title></head>
@@ -87,6 +144,11 @@ const server = http.createServer((request, response) => {
   if (url.pathname === '/fixture-long') {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     response.end(longFixturePage);
+    return;
+  }
+  if (url.pathname === '/credential-probe') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(credentialProbePage);
     return;
   }
 
@@ -156,6 +218,8 @@ server.listen(port, '127.0.0.1', async () => {
     assert.equal(models.data[0].id, 'mock-model');
     const longFixture = await (await fetch(`${base}/fixture-long`)).text();
     assert.match(longFixture, /Batch 16:/);
+    const probe = await (await fetch(`${base}/credential-probe`)).text();
+    assert.match(probe, /Page-origin IndexedDB probe/);
 
     const chat = await (await fetch(`${base}/ok/v1/chat/completions`, {
       method: 'POST', headers, body: JSON.stringify({ messages: [{ role: 'user', content: input }] }),

@@ -87,6 +87,7 @@ test('Firefox preview manifest requests websiteContent instead of claiming no tr
   const config = await readFile(new URL('../wxt.config.ts', import.meta.url), 'utf8');
   assert.match(config, /optional_permissions: optionalOrigins/);
   assert.match(config, /required: \['websiteContent'\]/);
+  assert.match(config, /id: 'lingualens-private-relay@local'/);
   assert.equal(/required:\s*\[[^\]]*['"]none['"]/.test(config), false);
   assert.match(config, /browser === 'firefox'\s*\?\s*\['storage', 'activeTab', 'contextMenus'\]/);
 
@@ -101,6 +102,7 @@ test('Firefox preview manifest requests websiteContent instead of claiming no tr
       'http://127.0.0.1/*',
     ]);
     assert.equal(manifest.permissions.includes('scripting'), false);
+    assert.equal(manifest.browser_specific_settings?.gecko?.id, 'lingualens-private-relay@local');
     assert.deepEqual(
       manifest.browser_specific_settings?.gecko?.data_collection_permissions,
       { required: ['websiteContent'] },
@@ -112,6 +114,15 @@ test('Firefox preview manifest requests websiteContent instead of claiming no tr
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return;
     throw error;
   }
+});
+
+test('secret status is options-only and no message returns a raw API key', async () => {
+  const router = await readFile(new URL('../src/background/message-router.ts', import.meta.url), 'utf8');
+  const types = await readFile(new URL('../src/shared/types.ts', import.meta.url), 'utf8');
+  assert.match(router, /case 'GET_SECRET_STATUS':\s*\{[\s\S]*?OPTIONS_ONLY/);
+  assert.equal(/GET_API_KEY/.test(router), false);
+  assert.equal(/GET_API_KEY/.test(types), false);
+  assert.match(router, /stripSecrets/);
 });
 
 test('translation payload validation enforces required fields and limits', () => {

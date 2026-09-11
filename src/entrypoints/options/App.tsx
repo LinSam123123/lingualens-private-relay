@@ -31,6 +31,7 @@ export function App() {
     hasKey: false,
     storageMode: 'session',
     localKeyStorageAvailable: true,
+    persistentKeyStorageAvailable: false,
   });
   const [apiKey, setApiKey] = useState('');
   const [models, setModels] = useState<string[]>([]);
@@ -130,7 +131,9 @@ export function App() {
         ok: false,
         text: message === 'LOCAL_KEY_STORAGE_UNAVAILABLE'
           ? t('options.localKeyStorageUnavailable')
-          : message,
+          : message === 'PERSISTENT_KEY_STORAGE_UNAVAILABLE'
+            ? t('options.persistentKeyStorageUnavailable')
+            : message,
       });
     } finally {
       setSaving(false);
@@ -224,15 +227,27 @@ export function App() {
             <Field label={t('options.keyStorage')}>
               <select className="input" value={settings.keyStorageMode} onChange={(e) => updateSettings({ keyStorageMode: e.target.value as AppSettings['keyStorageMode'] })}>
                 <option value="session">{t('options.keySession')}</option>
-                <option value="local" disabled={!secret.localKeyStorageAvailable}>{t('options.keyLocal')}</option>
+                {secret.localKeyStorageAvailable && (
+                  <option value="local">{t('options.keyLocal')}</option>
+                )}
+                {secret.persistentKeyStorageAvailable && (
+                  <option value="persistent">{t('options.keyPersistent')}</option>
+                )}
               </select>
             </Field>
             <Field label={t('options.apiKey')}>
               <input className="input" type="password" autoComplete="new-password" value={apiKey} placeholder={secret.hasKey ? secret.maskedKey ?? 'Configured' : ''} onChange={(e) => { setApiKey(e.target.value); setDirty(true); }} />
             </Field>
           </div>
-          {!secret.localKeyStorageAvailable && (
+          {secret.localKeyStorageAvailable === false && secret.persistentKeyStorageAvailable === false
+            && resolveHostPermissionBrowser() !== 'firefox' && (
             <p className="text-xs text-gray-500 mt-2">{t('options.localKeyStorageUnavailable')}</p>
+          )}
+          {resolveHostPermissionBrowser() === 'firefox' && (
+            <p className="text-xs text-gray-500 mt-2">{t('options.persistentKeyStorageHelp')}</p>
+          )}
+          {resolveHostPermissionBrowser() === 'firefox' && !secret.persistentKeyStorageAvailable && (
+            <p className="text-xs text-amber-700 mt-2">{t('options.persistentKeyStorageUnavailable')}</p>
           )}
           <div className="mt-3 flex items-center justify-between gap-3">
             <span className="text-xs text-gray-500">{secret.hasKey ? t('options.keyConfigured') : t('options.keyMissing')}</span>

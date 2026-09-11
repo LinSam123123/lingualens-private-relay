@@ -12,7 +12,9 @@ import type {
   TranslationBatchResult,
 } from '../shared/types';
 import { DEFAULT_SETTINGS, PRIVATE_RELAY_PROVIDER_ID } from '../shared/constants';
-import { clearApiKey, getApiKey, getSecretStatus, saveApiKey } from './secret-store';
+import { clearApiKey, clearOtherApiKeys, getApiKey, getSecretStatus, writeApiKey } from './secret-store';
+import { canUsePersistentKeyStorage } from './credential-idb';
+import { normalizeSecretStorageMode } from './secret-policy';
 import { canUseLocalKeyStorage } from './storage-access';
 import { validateBaseUrl } from '../shared/url-policy';
 import {
@@ -60,9 +62,10 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     defaultProvider: PRIVATE_RELAY_PROVIDER_ID,
     fallbackProviders: [],
     providers: [{ ...relay, id: PRIVATE_RELAY_PROVIDER_ID, type: 'relay', enabled: true }],
-    keyStorageMode: settings.keyStorageMode === 'local' && canUseLocalKeyStorage()
-      ? 'local'
-      : 'session',
+    keyStorageMode: normalizeSecretStorageMode(settings.keyStorageMode, {
+      local: canUseLocalKeyStorage(),
+      persistent: canUsePersistentKeyStorage(),
+    }),
   };
 }
 
@@ -84,8 +87,9 @@ export async function getSettings(): Promise<AppSettings> {
   const legacyKey = raw.providers?.find((provider) => provider.apiKey)?.apiKey;
   const normalized = normalizeSettings(raw);
   if (legacyKey) {
-    await saveApiKey(legacyKey, normalized.keyStorageMode);
+    await writeApiKey(legacyKey, normalized.keyStorageMode);
     await browser.storage.local.set({ settings: normalized });
+    await clearOtherApiKeys(normalized.keyStorageMode);
   } else if (raw.keyStorageMode === 'local' && normalized.keyStorageMode !== 'local') {
     await browser.storage.local.set({ settings: normalized });
   }
@@ -95,6 +99,9 @@ export async function getSettings(): Promise<AppSettings> {
 export async function saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
   if (partial.keyStorageMode === 'local' && !canUseLocalKeyStorage()) {
     throw new Error('LOCAL_KEY_STORAGE_UNAVAILABLE');
+  }
+  if (partial.keyStorageMode === 'persistent' && !canUsePersistentKeyStorage()) {
+    throw new Error('PERSISTENT_KEY_STORAGE_UNAVAILABLE');
   }
   const current = await getSettings();
   const previousTranslationConfig = translationConfigFingerprint(current);
@@ -115,9 +122,10 @@ export async function saveSettings(partial: Partial<AppSettings>): Promise<AppSe
   relay.maxCharsPerRequest = Math.min(20_000, Math.max(500, relay.maxCharsPerRequest ?? 8_000));
   relay.maxPageChars = Math.min(1_000_000, Math.max(1_000, relay.maxPageChars ?? 100_000));
   relay.maxPageRequests = Math.min(1_000, Math.max(1, relay.maxPageRequests ?? 100));
-  if (draftKey?.trim()) await saveApiKey(draftKey, normalized.keyStorageMode);
-  else if (existingKey) await saveApiKey(existingKey, normalized.keyStorageMode);
+  const nextKey = draftKey?.trim() || existingKey;
+  if (nextKey) await writeApiKey(nextKey, normalized.keyStorageMode);
   await browser.storage.local.set({ settings: normalized });
+  if (nextKey) await clearOtherApiKeys(normalized.keyStorageMode);
   if (previousTranslationConfig !== translationConfigFingerprint(normalized) || Boolean(draftKey?.trim())) {
     await clearTranslationCache();
   }
@@ -330,6 +338,7 @@ export async function handleMessage(
     case 'GET_SETTINGS':
       return { success: true, data: await getSettings() };
     case 'GET_SECRET_STATUS': {
+      if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
       const settings = await getSettings();
       return { success: true, data: await getSecretStatus(settings.keyStorageMode) };
     }

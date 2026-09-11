@@ -100,7 +100,7 @@ export type ChunkingMode = 'quality' | 'speed';
 
 export type SelectionTriggerMode = 'icon' | 'instant' | 'modifier' | 'off';
 export type SelectionModifierKey = 'ctrl' | 'alt' | 'shift';
-export type SecretStorageMode = 'session' | 'local';
+export type SecretStorageMode = 'session' | 'local' | 'persistent';
 
 export interface AppSettings {
   defaultProvider: string;
@@ -120,6 +120,7 @@ export interface SecretStatus {
   hasKey: boolean;
   storageMode: SecretStorageMode;
   localKeyStorageAvailable: boolean;
+  persistentKeyStorageAvailable: boolean;
   maskedKey?: string;
 }
 
