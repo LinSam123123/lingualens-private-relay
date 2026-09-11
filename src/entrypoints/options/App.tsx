@@ -18,7 +18,11 @@ import {
 } from '../../shared/constants';
 import { AppLogo } from '../../shared/AppLogo';
 import { AVAILABLE_UI_LANGUAGES, getUILanguage, setUILanguage } from '../../shared/i18n';
-import { validateBaseUrl } from '../../shared/url-policy';
+import {
+  hostPermissionOrigins,
+  hostPermissionQuery,
+  resolveHostPermissionBrowser,
+} from '../../shared/url-policy';
 
 export function App() {
   const { t } = useTranslation();
@@ -50,7 +54,7 @@ export function App() {
         setSettings(settingsResult.data);
         const url = settingsResult.data.providers[0]?.baseUrl;
         try {
-          originalPermissionRef.current = url ? validateBaseUrl(url).permissionOrigin : null;
+          originalPermissionRef.current = url ? hostPermissionQuery(url).origins[0] : null;
         } catch {
           originalPermissionRef.current = null;
         }
@@ -84,19 +88,20 @@ export function App() {
 
   const saveAndAuthorize = async () => {
     setNotice(null);
-    let permissionOrigin: string;
+    let permission: { origins: string[] };
     try {
-      permissionOrigin = validateBaseUrl(relay.baseUrl).permissionOrigin;
+      permission = hostPermissionQuery(relay.baseUrl);
     } catch (error) {
       setNotice({ ok: false, text: error instanceof Error ? error.message : 'BASE_URL_INVALID' });
       return;
     }
 
+    const permissionOrigin = permission.origins[0];
     const oldPermission = originalPermissionRef.current;
     let granted = false;
     setSaving(true);
     try {
-      granted = await browser.permissions.request({ origins: [permissionOrigin] });
+      granted = await browser.permissions.request(permission);
       if (!granted) throw new Error('HOST_PERMISSION_DENIED');
       const provider = { ...relay, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) };
       const response: MessageResponse<AppSettings> = await browser.runtime.sendMessage({
@@ -107,7 +112,7 @@ export function App() {
 
       let warning = '';
       if (oldPermission && oldPermission !== permissionOrigin) {
-        const removed = await browser.permissions.remove({ origins: [oldPermission] });
+        const removed = await browser.permissions.remove(hostPermissionOrigins(oldPermission));
         if (!removed) warning = ' OLD_HOST_PERMISSION_NOT_REMOVED';
       }
       originalPermissionRef.current = permissionOrigin;
@@ -118,7 +123,7 @@ export function App() {
       setNotice({ ok: true, text: `${t('options.saved')}${warning}` });
     } catch (error) {
       if (granted && permissionOrigin !== oldPermission) {
-        await browser.permissions.remove({ origins: [permissionOrigin] }).catch(() => false);
+        await browser.permissions.remove(permission).catch(() => false);
       }
       const message = error instanceof Error ? error.message : 'SAVE_FAILED';
       setNotice({
@@ -209,6 +214,9 @@ export function App() {
             <input className="input" value={relay.baseUrl} placeholder="https://relay.example.com/v1" onChange={(e) => updateRelay({ baseUrl: e.target.value })} />
           </Field>
           <p className="text-xs text-gray-500 mt-2">{t('options.baseUrlPolicy')}</p>
+          {resolveHostPermissionBrowser() === 'firefox' && (
+            <p className="text-xs text-gray-500 mt-2">{t('options.firefoxHostPermissionScope')}</p>
+          )}
         </Section>
 
         <Section title={t('options.credentials')}>

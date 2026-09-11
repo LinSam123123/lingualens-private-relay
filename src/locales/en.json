@@ -43,6 +43,7 @@
     "relayConnection": "Relay connection",
     "protocol": "API protocol",
     "baseUrlPolicy": "HTTPS is required except for localhost and 127.0.0.1. Use the final URL without redirects, query parameters, or fragments.",
+    "firefoxHostPermissionScope": "Firefox host permission covers every port on this hostname. Fetch still uses only the saved Base URL, including its port.",
     "credentials": "Credentials",
     "keyStorage": "Key storage",
     "keySession": "Browser session (recommended)",

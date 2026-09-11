@@ -1,7 +1,45 @@
 export interface ValidatedBaseUrl {
   baseUrl: string;
   origin: string;
+  /** Match pattern for permissions.request/contains/remove. */
   permissionOrigin: string;
+}
+
+export type HostPermissionBrowser = 'chrome' | 'firefox';
+
+export function resolveHostPermissionBrowser(
+  browser?: HostPermissionBrowser,
+): HostPermissionBrowser {
+  if (browser === 'firefox' || browser === 'chrome') return browser;
+  const envBrowser = (import.meta as ImportMeta & { env?: { BROWSER?: string } }).env?.BROWSER;
+  return envBrowser === 'firefox' ? 'firefox' : 'chrome';
+}
+
+function asUrl(value: string | URL): URL {
+  return value instanceof URL ? value : new URL(value);
+}
+
+export function hostPermissionPattern(
+  value: string | URL,
+  browser?: HostPermissionBrowser,
+): string {
+  const url = asUrl(value);
+  if (resolveHostPermissionBrowser(browser) === 'firefox') {
+    return `${url.protocol}//${url.hostname}/*`;
+  }
+  return `${url.origin}/*`;
+}
+
+export function hostPermissionOrigins(pattern: string): { origins: string[] } {
+  return { origins: [pattern] };
+}
+
+export function hostPermissionQuery(
+  value: string,
+  browser?: HostPermissionBrowser,
+): { origins: string[] } {
+  const validated = validateBaseUrl(value);
+  return hostPermissionOrigins(hostPermissionPattern(validated.baseUrl, browser));
 }
 
 export function validateBaseUrl(value: string): ValidatedBaseUrl {
@@ -24,10 +62,11 @@ export function validateBaseUrl(value: string): ValidatedBaseUrl {
     throw new Error('BASE_URL_UNSAFE_PROTOCOL');
   }
 
+  const baseUrl = url.toString().replace(/\/+$/, '');
   return {
-    baseUrl: url.toString().replace(/\/+$/, ''),
+    baseUrl,
     origin: url.origin,
-    permissionOrigin: `${url.origin}/*`,
+    permissionOrigin: hostPermissionPattern(url),
   };
 }
 

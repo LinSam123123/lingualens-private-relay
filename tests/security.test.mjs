@@ -3,12 +3,56 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { isOptionsSender, isOwnExtensionSender, isTranslateRequest } from '../src/background/message-policy.ts';
-import { endpointUrl, validateBaseUrl } from '../src/shared/url-policy.ts';
+import {
+  endpointUrl,
+  hostPermissionOrigins,
+  hostPermissionPattern,
+  hostPermissionQuery,
+  validateBaseUrl,
+} from '../src/shared/url-policy.ts';
 
 test('base URL policy accepts HTTPS and exact loopback HTTP origins', () => {
   assert.equal(validateBaseUrl('https://relay.example.invalid/v1/').baseUrl, 'https://relay.example.invalid/v1');
   assert.equal(validateBaseUrl('http://127.0.0.1:8080/v1').permissionOrigin, 'http://127.0.0.1:8080/*');
   assert.equal(endpointUrl('https://relay.example.invalid/v1', '/models'), 'https://relay.example.invalid/v1/models');
+});
+
+test('Chrome host permission patterns keep non-default ports', () => {
+  assert.equal(hostPermissionPattern('http://127.0.0.1:17891/ok/v1', 'chrome'), 'http://127.0.0.1:17891/*');
+  assert.equal(hostPermissionPattern('https://relay.example.invalid:8443/v1', 'chrome'), 'https://relay.example.invalid:8443/*');
+  assert.deepEqual(hostPermissionQuery('http://127.0.0.1:17891/ok/v1', 'chrome'), {
+    origins: ['http://127.0.0.1:17891/*'],
+  });
+});
+
+test('Firefox host permission patterns omit ports but fetch URLs keep them', () => {
+  const saved = validateBaseUrl('http://127.0.0.1:17891/ok/v1');
+  assert.equal(saved.baseUrl, 'http://127.0.0.1:17891/ok/v1');
+  assert.equal(endpointUrl(saved.baseUrl, 'chat/completions'), 'http://127.0.0.1:17891/ok/v1/chat/completions');
+  assert.equal(hostPermissionPattern(saved.baseUrl, 'firefox'), 'http://127.0.0.1/*');
+  assert.equal(hostPermissionPattern('http://localhost:17891/ok/v1', 'firefox'), 'http://localhost/*');
+  assert.equal(hostPermissionPattern('https://relay.example.invalid:8443/v1', 'firefox'), 'https://relay.example.invalid/*');
+  assert.deepEqual(hostPermissionQuery('http://127.0.0.1:17891/ok/v1', 'firefox'), {
+    origins: ['http://127.0.0.1/*'],
+  });
+  assert.deepEqual(
+    hostPermissionQuery('http://127.0.0.1:17891/ok/v1', 'firefox'),
+    hostPermissionQuery('http://127.0.0.1:9/ok/v1', 'firefox'),
+  );
+  assert.notDeepEqual(
+    hostPermissionQuery('http://127.0.0.1:17891/ok/v1', 'chrome'),
+    hostPermissionQuery('http://127.0.0.1:9/ok/v1', 'chrome'),
+  );
+  assert.deepEqual(hostPermissionOrigins('http://127.0.0.1/*'), { origins: ['http://127.0.0.1/*'] });
+});
+
+test('host permission queries never request all hosts', () => {
+  for (const browser of ['chrome', 'firefox']) {
+    const query = hostPermissionQuery('http://127.0.0.1:17891/ok/v1', browser);
+    assert.equal(query.origins.includes('https://*/*'), false);
+    assert.equal(query.origins.includes('<all_urls>'), false);
+    assert.equal(query.origins.includes('http://*/*'), false);
+  }
 });
 
 test('base URL policy rejects unsafe or ambiguous components', () => {
@@ -61,6 +105,9 @@ test('Firefox preview manifest requests websiteContent instead of claiming no tr
       manifest.browser_specific_settings?.gecko?.data_collection_permissions,
       { required: ['websiteContent'] },
     );
+    const loopback = hostPermissionQuery('http://127.0.0.1:17891/ok/v1', 'firefox').origins[0];
+    assert.equal(manifest.optional_permissions.includes(loopback), true);
+    assert.equal(manifest.optional_permissions.includes('http://127.0.0.1:17891/*'), false);
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return;
     throw error;

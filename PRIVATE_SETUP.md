@@ -64,9 +64,11 @@ Base URL 必须满足：
 2. 填写 Base URL、协议、模型和 API Key。
 3. 选择 Key 存储方式。
 4. 点击“保存并授权域名”。
-5. 接受浏览器针对该具体 origin 的权限请求。
+5. 接受浏览器针对该主机权限的提示。
 
-更换 Base URL 时，扩展先申请新 origin；保存失败会移除刚申请的权限；保存成功后再移除旧 origin。模型刷新和连接测试只能针对已保存的配置运行，避免绕过用户授权手势。
+Chrome 申请的是精确 origin（非默认端口会写入口径）。Firefox 的 match pattern 不能带端口，因此申请 `scheme://hostname/*`，该权限覆盖此主机的所有端口。Background 的 fetch 仍只使用已保存并通过校验的精确 Base URL（含端口），不会改成任意端口或任意域名。`permissions.request`、`contains` 和 `remove` 使用同一套模式生成函数。
+
+更换 Base URL 时，扩展先申请新权限；保存失败会移除刚申请的权限；保存成功后再移除旧权限。Firefox 上只改端口时新旧模式相同，不会移除该主机权限。模型刷新和连接测试只能针对已保存的配置运行，避免绕过用户授权手势。
 
 Key 默认存入 `storage.session`，浏览器会话结束后可能丢失。选择本地模式后，Key 存入限制为 trusted extension contexts 的 `storage.local`。设置页只能读取 `hasKey` 和脱敏状态，不能读回明文 Key。
 

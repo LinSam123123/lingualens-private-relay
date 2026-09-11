@@ -12,7 +12,8 @@
 - Chrome 核心手动矩阵已完成并通过。
 - Edge 尚未开始手动兼容验收。
 - Firefox MV2 预览构建已生成并完成 Manifest 检查，但尚未在真实 Firefox 中手动验证。
-- Firefox 不支持 `storage.*.setAccessLevel`。自动测试覆盖：初始化不会因此失败；local Key 被拒绝；session Key 仍可用。真实浏览器中的设置页禁用项、划词（无 `scripting`）、Sidebar 和 `permissions.request` 仍缺实测证据。
+- Firefox 不支持 `storage.*.setAccessLevel`。自动测试覆盖：初始化不会因此失败；local Key 被拒绝；session Key 仍可用。真实浏览器中的设置页禁用项、划词（无 `scripting`）、Sidebar 仍缺实测证据。
+- Firefox 曾因申请 `http://127.0.0.1:17891/*` 失败（manifest 只有无端口的 `http://127.0.0.1/*`）。代码已改为 Firefox 申请无端口主机模式，Chrome 仍申请含端口 origin；自动测试已覆盖。真实 Firefox 保存并授权尚未复测。
 - Firefox Manifest 的 `data_collection_permissions.required` 现为 `websiteContent`。Mozilla 将“向扩展或本地浏览器之外传输数据”视为 data transmission；向用户配置的 Relay 发送网页正文符合 `websiteContent`，不能因为没有遥测就写 `none`。该声明尚未在真实 Firefox 安装提示中目视确认。
 - 最新完整自动验证已通过：测试、TypeScript、Chrome production build 和产物审计。
 - 动态 DOM、多预设、持久缓存、Firefox 完整适配、旧 Provider 物理清理和依赖升级仍属于后续阶段。

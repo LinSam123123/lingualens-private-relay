@@ -26,7 +26,7 @@ Task journals contain IDs, status, attempts, character/request budgets, and time
 
 ## Permissions
 
-The extension declares broad optional HTTPS/loopback patterns only so Chrome can present a user-triggered permission request. The settings page requests the validated concrete Relay origin when **Save and authorize host** is clicked and removes the obsolete origin after a successful change.
+The extension declares broad optional HTTPS/loopback patterns only so the browser can present a user-triggered permission request. The settings page requests a host match pattern generated from the validated Relay URL when **Save and authorize host** is clicked, then removes the obsolete pattern after a successful change. Chrome patterns include a non-default port. Firefox match patterns cannot include a port, so the granted Firefox permission covers every port on that hostname; fetch still uses only the saved, validated Base URL. The extension does not grant all hosts to work around this.
 
 Content-script access is used for selection and page-snapshot translation. `storage`, `activeTab`, `sidePanel`, `contextMenus`, and `scripting` support the corresponding extension features.
 
