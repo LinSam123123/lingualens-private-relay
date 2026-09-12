@@ -93,6 +93,8 @@
     "timeout": "Timeout (seconds)",
     "concurrency": "Concurrency",
     "batchChars": "Characters per request",
+    "batchItems": "Items per request",
+    "batchItemsHelp": "0 means no item cap; the character limit still applies. Batches are not split by translation length. Already dispatched timed-out batches are not automatically split and resent.",
     "pageChars": "Page character budget",
     "pageRequests": "Page request budget",
     "gatewayRetry": "Allow automatic retry for HTTP 502/503",

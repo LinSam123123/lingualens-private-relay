@@ -29,6 +29,8 @@ export interface ProviderConfig {
   timeoutMs?: number;
   maxConcurrency?: number;
   maxCharsPerRequest?: number;
+  /** 0 means no per-batch item cap; character limit still applies. */
+  maxItemsPerRequest?: number;
   maxPageChars?: number;
   maxPageRequests?: number;
   retryGatewayErrors?: boolean;

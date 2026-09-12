@@ -18,6 +18,7 @@ export interface PageTranslateOptions {
   sourceLang: string;
   displayMode: DisplayMode;
   maxCharsPerRequest: number;
+  maxItemsPerRequest: number;
   maxPageChars: number;
   maxPageRequests: number;
 }
@@ -67,8 +68,11 @@ export class PageTranslateEngine {
     this.domById = new Map(this.domItems.map((item) => [item.id, item]));
 
     const networkItems = buildNetworkItems(this.domItems, options.maxCharsPerRequest);
-    this.batches = buildBatches(networkItems, options.maxCharsPerRequest)
-      .slice(0, options.maxPageRequests);
+    this.batches = buildBatches(
+      networkItems,
+      options.maxCharsPerRequest,
+      options.maxItemsPerRequest,
+    ).slice(0, options.maxPageRequests);
     const scheduledItems = this.batches.flatMap((batch) => batch.items);
     for (const item of scheduledItems) {
       const list = this.chunksByDomId.get(item.domItemId) ?? [];

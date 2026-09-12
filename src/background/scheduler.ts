@@ -6,7 +6,7 @@ import type {
   TranslationBatchRequest,
   TranslationBatchResult,
 } from '../shared/types';
-import { RelayAdapter, RelayHttpError } from '../providers/relay';
+import { RelayAdapter, RelayHttpError, type RelayFetchTiming } from '../providers/relay';
 import {
   canConsumeBudget,
   classifyRetry,
@@ -26,7 +26,7 @@ import {
   recordBatchDiagnostic,
   sanitizeDiagnosticStatus,
 } from './batch-diagnostics';
-import type { RelayFetchTiming } from '../providers/relay';
+import { validateBatchLimits } from '../content/page-translator/page-batching';
 
 interface PendingBatch {
   request: TranslationBatchRequest;
@@ -131,16 +131,11 @@ export class TranslationScheduler {
     if (!request.sessionId || request.sessionId.length > 128) throw new Error('SESSION_ID_INVALID');
     if (!request.batchId || request.batchId.length > 128) throw new Error('BATCH_ID_INVALID');
     if (!/^[a-zA-Z0-9-]{8,128}$/.test(request.requestId)) throw new Error('REQUEST_ID_INVALID');
-    if (!Array.isArray(request.items) || request.items.length === 0) throw new Error('BATCH_EMPTY');
-    const ids = new Set<string>();
-    let chars = 0;
-    for (const item of request.items) {
-      if (!item.id || item.id.length > 128 || ids.has(item.id)) throw new Error('ITEM_ID_INVALID');
-      if (!item.text || item.text.length > (config.maxCharsPerRequest ?? 8_000)) throw new Error('ITEM_TEXT_INVALID');
-      ids.add(item.id);
-      chars += item.text.length;
-    }
-    if (chars > (config.maxCharsPerRequest ?? 8_000)) throw new Error('BATCH_CHAR_LIMIT');
+    validateBatchLimits(
+      request.items,
+      config.maxCharsPerRequest ?? 8_000,
+      config.maxItemsPerRequest ?? 0,
+    );
   }
 
   private async dispatch(): Promise<void> {

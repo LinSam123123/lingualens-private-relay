@@ -74,6 +74,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
       timeoutMs: 25_000,
       maxConcurrency: 2,
       maxCharsPerRequest: 8_000,
+      maxItemsPerRequest: 0,
       maxPageChars: 100_000,
       maxPageRequests: 100,
       retryGatewayErrors: false,

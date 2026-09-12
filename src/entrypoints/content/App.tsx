@@ -240,6 +240,7 @@ export function ContentApp({ onReady }: Props) {
           sourceLang: settings?.defaultSourceLang ?? 'auto',
           displayMode,
           maxCharsPerRequest: settings?.providers[0]?.maxCharsPerRequest ?? 8_000,
+          maxItemsPerRequest: settings?.providers[0]?.maxItemsPerRequest ?? 0,
           maxPageChars: settings?.providers[0]?.maxPageChars ?? 100_000,
           maxPageRequests: settings?.providers[0]?.maxPageRequests ?? 100,
         },
@@ -289,6 +290,7 @@ export function ContentApp({ onReady }: Props) {
       sourceLang: current?.defaultSourceLang ?? 'auto',
       displayMode,
       maxCharsPerRequest: current?.providers[0]?.maxCharsPerRequest ?? 8_000,
+      maxItemsPerRequest: current?.providers[0]?.maxItemsPerRequest ?? 0,
       maxPageChars: current?.providers[0]?.maxPageChars ?? 100_000,
       maxPageRequests: current?.providers[0]?.maxPageRequests ?? 100,
     };

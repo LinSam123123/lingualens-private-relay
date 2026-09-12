@@ -470,9 +470,11 @@ export function App() {
             <NumberField label={t('options.timeout')} value={(relay.timeoutMs ?? 25_000) / 1000} min={5} max={120} onChange={(value) => updateRelay({ timeoutMs: value * 1000 })} />
             <NumberField label={t('options.concurrency')} value={relay.maxConcurrency ?? 2} min={1} max={4} onChange={(value) => updateRelay({ maxConcurrency: value })} />
             <NumberField label={t('options.batchChars')} value={relay.maxCharsPerRequest ?? 8_000} min={500} max={20_000} onChange={(value) => updateRelay({ maxCharsPerRequest: value })} />
+            <NumberField label={t('options.batchItems')} value={relay.maxItemsPerRequest ?? 0} min={0} max={200} onChange={(value) => updateRelay({ maxItemsPerRequest: value })} />
             <NumberField label={t('options.pageChars')} value={relay.maxPageChars ?? 100_000} min={1_000} max={1_000_000} onChange={(value) => updateRelay({ maxPageChars: value })} />
             <NumberField label={t('options.pageRequests')} value={relay.maxPageRequests ?? 100} min={1} max={1_000} onChange={(value) => updateRelay({ maxPageRequests: value })} />
           </div>
+          <p className="text-xs text-gray-500 mt-3">{t('options.batchItemsHelp')}</p>
           <label className="mt-5 flex items-start gap-3 cursor-pointer">
             <input type="checkbox" className="mt-1" checked={relay.retryGatewayErrors === true} onChange={(e) => updateRelay({ retryGatewayErrors: e.target.checked })} />
             <span><strong className="block text-sm text-gray-700">{t('options.gatewayRetry')}</strong><span className="block text-xs text-gray-500 mt-1">{t('options.gatewayRetryWarning')}</span></span>

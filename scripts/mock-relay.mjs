@@ -92,6 +92,27 @@ const longFixturePage = `<!doctype html>
 </body>
 </html>`;
 
+const mixedShortItems = Array.from({ length: 24 }, (_, index) => `
+    <li id="nav-${index + 1}">Short nav ${index + 1}</li>`).join('');
+const mixedLongParagraphs = Array.from({ length: 8 }, (_, index) => {
+  const body = `Mixed long paragraph ${index + 1}. Keep names, numbers, and punctuation. This paragraph is long enough to sit beside short navigation nodes so batching can be compared without using a private page. `.repeat(6);
+  return `
+    <p id="mixed-long-${index + 1}">${body}</p>`;
+}).join('');
+const mixedFixturePage = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>LinguaLens Mixed Batch Fixture</title></head>
+<body>
+  <main>
+    <h1>Mixed short nodes and long paragraphs</h1>
+    <p id="format">Keep this <a href="#mixed-end">working link</a> and this <strong>bold phrase</strong> intact.</p>
+    <ul>${mixedShortItems}
+    </ul>${mixedLongParagraphs}
+    <p id="mixed-end">The final paragraph verifies restore original behavior.</p>
+  </main>
+</body>
+</html>`;
+
 function json(response, status, body, headers = {}) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...headers });
   response.end(JSON.stringify(body));
@@ -144,6 +165,11 @@ const server = http.createServer((request, response) => {
   if (url.pathname === '/fixture-long') {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     response.end(longFixturePage);
+    return;
+  }
+  if (url.pathname === '/fixture-mixed') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(mixedFixturePage);
     return;
   }
   if (url.pathname === '/credential-probe') {
@@ -218,6 +244,11 @@ server.listen(port, '127.0.0.1', async () => {
     assert.equal(models.data[0].id, 'mock-model');
     const longFixture = await (await fetch(`${base}/fixture-long`)).text();
     assert.match(longFixture, /Batch 16:/);
+    const mixedFixture = await (await fetch(`${base}/fixture-mixed`)).text();
+    assert.match(mixedFixture, /Short nav 24/);
+    assert.match(mixedFixture, /Mixed long paragraph 8/);
+    assert.match(mixedFixture, /working link/);
+    assert.match(mixedFixture, /bold phrase/);
     const probe = await (await fetch(`${base}/credential-probe`)).text();
     assert.match(probe, /Page-origin IndexedDB probe/);
 
