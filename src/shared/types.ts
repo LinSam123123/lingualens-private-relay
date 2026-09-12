@@ -142,7 +142,10 @@ export type MessageType =
   | { type: 'SAVE_SETTINGS'; payload: Partial<AppSettings> }
   | { type: 'UPDATE_RUNTIME_SETTINGS'; payload: RuntimeSettingsPatch }
   | { type: 'CLEAR_SECRET' }
-  | { type: 'PROBE_CONTENT_SCRIPT_ISOLATION'; payload: { tabId: number } };
+  | { type: 'PROBE_CONTENT_SCRIPT_ISOLATION'; payload: { tabId: number } }
+  | { type: 'GET_BATCH_DIAGNOSTICS' }
+  | { type: 'SET_BATCH_DIAGNOSTICS_ENABLED'; payload: { enabled: boolean } }
+  | { type: 'CLEAR_BATCH_DIAGNOSTICS' };
 
 export type MessageResponse<T = unknown> =
   | { success: true; data: T }

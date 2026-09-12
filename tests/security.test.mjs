@@ -140,6 +140,9 @@ test('secret status is options-only and no message returns a raw API key', async
   const types = await readFile(new URL('../src/shared/types.ts', import.meta.url), 'utf8');
   assert.match(router, /case 'GET_SECRET_STATUS':\s*\{[\s\S]*?OPTIONS_ONLY/);
   assert.match(router, /case 'PROBE_CONTENT_SCRIPT_ISOLATION':\s*\{[\s\S]*?OPTIONS_ONLY/);
+  assert.match(router, /case 'GET_BATCH_DIAGNOSTICS':\s*[\s\S]*?OPTIONS_ONLY/);
+  assert.match(router, /case 'SET_BATCH_DIAGNOSTICS_ENABLED':\s*\{[\s\S]*?OPTIONS_ONLY/);
+  assert.match(router, /case 'CLEAR_BATCH_DIAGNOSTICS':\s*[\s\S]*?OPTIONS_ONLY/);
   assert.match(router, /UNSUPPORTED_TAB/);
   assert.match(router, /CONTENT_SCRIPT_MISSING/);
   assert.match(router, /publicCredentialIsolationProbe/);

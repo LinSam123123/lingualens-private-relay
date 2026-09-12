@@ -124,6 +124,7 @@
     "preparing": "준비 중…",
     "translatingProgress": "번역 중… {{done}}/{{total}} ({{percent}}%)",
     "translatedProgress": "번역 완료 {{done}}/{{total}}",
+    "progressHint": "These numbers are scheduled network text chunks, not API request counts.",
     "errors": "· {{count}}개 오류",
     "allFailed": "번역 실패 ({{count}}개 오류)",
     "stop": "페이지 번역 중지",

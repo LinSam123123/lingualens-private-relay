@@ -124,6 +124,7 @@
     "preparing": "準備中…",
     "translatingProgress": "翻譯中… {{done}}/{{total}} ({{percent}}%)",
     "translatedProgress": "已翻譯 {{done}}/{{total}}",
+    "progressHint": "數字是已排程的網路文字塊，不是 API 請求次數。一批可含多個文字塊。",
     "errors": "· {{count}} 個錯誤",
     "allFailed": "翻譯失敗（{{count}} 個錯誤）",
     "stop": "停止頁面翻譯",

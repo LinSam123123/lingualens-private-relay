@@ -28,6 +28,11 @@ import {
 import { RelayAdapter } from '../providers/relay';
 import { TranslationScheduler } from './scheduler';
 import { getTaskJournal } from './task-journal';
+import {
+  batchDiagnosticsSnapshot,
+  clearBatchDiagnostics,
+  setBatchDiagnosticsEnabled,
+} from './batch-diagnostics';
 
 const providerManager = new ProviderManager();
 const translationScheduler = new TranslationScheduler();
@@ -441,6 +446,19 @@ export async function handleMessage(
     case 'GET_CACHE_STATS':
       if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
       return { success: true, data: await getCacheStats() };
+    case 'GET_BATCH_DIAGNOSTICS':
+      if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
+      return { success: true, data: batchDiagnosticsSnapshot() };
+    case 'SET_BATCH_DIAGNOSTICS_ENABLED': {
+      if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
+      const enabled = (message.payload as { enabled?: unknown } | undefined)?.enabled === true;
+      setBatchDiagnosticsEnabled(enabled);
+      return { success: true, data: batchDiagnosticsSnapshot() };
+    }
+    case 'CLEAR_BATCH_DIAGNOSTICS':
+      if (!isOptionsSender(sender, extensionId)) return { success: false, error: 'OPTIONS_ONLY' };
+      clearBatchDiagnostics();
+      return { success: true, data: batchDiagnosticsSnapshot() };
     default:
       return { success: false, error: `Unknown message type: ${message.type}` };
   }

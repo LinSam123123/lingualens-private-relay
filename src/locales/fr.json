@@ -124,6 +124,7 @@
     "preparing": "Préparation…",
     "translatingProgress": "Traduction… {{done}}/{{total}} ({{percent}} %)",
     "translatedProgress": "Traduit {{done}}/{{total}}",
+    "progressHint": "These numbers are scheduled network text chunks, not API request counts.",
     "errors": "· {{count}} erreurs",
     "allFailed": "Échec de la traduction ({{count}} erreurs)",
     "stop": "Arrêter la traduction de page",

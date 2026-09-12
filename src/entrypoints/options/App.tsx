@@ -25,6 +25,7 @@ import {
 } from '../../shared/url-policy';
 import type { PublicCredentialIsolationProbe } from '../../shared/credential-isolation';
 import { isOrdinaryHttpTabUrl } from '../../shared/translatable-tab';
+import type { BatchDiagnostic } from '../../background/batch-diagnostics';
 
 export function App() {
   const { t } = useTranslation();
@@ -47,7 +48,11 @@ export function App() {
   const [httpTabs, setHttpTabs] = useState<Array<{ id: number; label: string }>>([]);
   const [probeTabId, setProbeTabId] = useState('');
   const [uiLang, setUiLang] = useState(getUILanguage());
+  const [batchDiagEnabled, setBatchDiagEnabled] = useState(false);
+  const [batchDiagEntries, setBatchDiagEntries] = useState<BatchDiagnostic[]>([]);
+  const [batchDiagBuild, setBatchDiagBuild] = useState('');
   const originalPermissionRef = useRef<string | null>(null);
+  const extensionVersion = browser.runtime.getManifest().version;
 
   const relay = settings.providers[0] ?? DEFAULT_SETTINGS.providers[0];
 
@@ -236,6 +241,50 @@ export function App() {
       : { ok: false, text: response.error });
   };
 
+  const applyBatchDiagnostics = (data: {
+    enabled: boolean;
+    build: string;
+    entries: BatchDiagnostic[];
+  }) => {
+    setBatchDiagEnabled(data.enabled);
+    setBatchDiagBuild(data.build);
+    setBatchDiagEntries(data.entries);
+  };
+
+  const refreshBatchDiagnostics = async () => {
+    const response: MessageResponse<{
+      enabled: boolean;
+      build: string;
+      entries: BatchDiagnostic[];
+    }> = await browser.runtime.sendMessage({ type: 'GET_BATCH_DIAGNOSTICS' });
+    if (response.success) applyBatchDiagnostics(response.data);
+  };
+
+  const toggleBatchDiagnostics = async (enabled: boolean) => {
+    const response: MessageResponse<{
+      enabled: boolean;
+      build: string;
+      entries: BatchDiagnostic[];
+    }> = await browser.runtime.sendMessage({
+      type: 'SET_BATCH_DIAGNOSTICS_ENABLED',
+      payload: { enabled },
+    });
+    if (response.success) applyBatchDiagnostics(response.data);
+  };
+
+  const clearBatchDiagnosticsLog = async () => {
+    const response: MessageResponse<{
+      enabled: boolean;
+      build: string;
+      entries: BatchDiagnostic[];
+    }> = await browser.runtime.sendMessage({ type: 'CLEAR_BATCH_DIAGNOSTICS' });
+    if (response.success) applyBatchDiagnostics(response.data);
+  };
+
+  useEffect(() => {
+    void refreshBatchDiagnostics();
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="max-w-3xl mx-auto py-8 px-5">
@@ -243,7 +292,7 @@ export function App() {
           <AppLogo className="w-10 h-10 shrink-0" />
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-gray-800">LinguaLens</h1>
-            <p className="text-sm text-gray-500">{t('options.privateRelaySettings')}</p>
+            <p className="text-sm text-gray-500">{t('options.privateRelaySettings')} · v{extensionVersion}</p>
           </div>
         </header>
 
@@ -351,6 +400,69 @@ export function App() {
             {dirty && <span className="text-xs text-amber-700 self-center">{t('options.saveBeforeDiagnostics')}</span>}
           </div>
           {diagnostic && <Diagnostic result={diagnostic} />}
+          <div className="mt-5 pt-4 border-t border-gray-200">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={batchDiagEnabled}
+                onChange={(e) => void toggleBatchDiagnostics(e.target.checked)}
+              />
+              <span>
+                <strong className="block text-sm text-gray-700">{t('options.batchDiagnosticsEnable')}</strong>
+                <span className="block text-xs text-gray-500 mt-1">{t('options.batchDiagnosticsHelp')}</span>
+                {batchDiagBuild && (
+                  <span className="block text-xs text-gray-400 mt-1">build {batchDiagBuild}</span>
+                )}
+              </span>
+            </label>
+            <div className="flex flex-wrap gap-2 mt-3">
+              <button type="button" className="btn-secondary" onClick={() => void refreshBatchDiagnostics()}>
+                {t('options.refreshDiagnostics')}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => void clearBatchDiagnosticsLog()}>
+                {t('options.clearDiagnostics')}
+              </button>
+            </div>
+            {batchDiagEntries.length === 0 ? (
+              <p className="text-xs text-gray-500 mt-3">{t('options.batchDiagnosticsEmpty')}</p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="min-w-full text-xs text-left">
+                  <thead>
+                    <tr className="text-gray-500">
+                      <th className="pr-2 py-1 font-medium">{t('options.diagRequestId')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagAttempt')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagItems')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagChars')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagQueued')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagHeader')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagBody')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagParse')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagTotal')}</th>
+                      <th className="py-1 font-medium">{t('options.diagStatus')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batchDiagEntries.map((entry) => (
+                      <tr key={`${entry.requestId}-${entry.attempt}-${entry.totalMs}`} className="border-t border-gray-100">
+                        <td className="pr-2 py-1 font-mono">{entry.requestId}</td>
+                        <td className="pr-2 py-1">{entry.attempt}</td>
+                        <td className="pr-2 py-1">{entry.itemCount}</td>
+                        <td className="pr-2 py-1">{entry.sourceChars}</td>
+                        <td className="pr-2 py-1">{entry.queuedMs}</td>
+                        <td className="pr-2 py-1">{entry.headerMs ?? '—'}</td>
+                        <td className="pr-2 py-1">{entry.bodyMs ?? '—'}</td>
+                        <td className="pr-2 py-1">{entry.parseMs ?? '—'}</td>
+                        <td className="pr-2 py-1">{entry.totalMs}</td>
+                        <td className="py-1">{entry.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </Section>
 
         <Section title={t('options.translationLimits')}>

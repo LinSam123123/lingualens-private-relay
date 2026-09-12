@@ -22,6 +22,11 @@ import {
   transitionBatch,
   type TaskJournalEntry,
 } from './task-journal';
+import {
+  recordBatchDiagnostic,
+  sanitizeDiagnosticStatus,
+} from './batch-diagnostics';
+import type { RelayFetchTiming } from '../providers/relay';
 
 interface PendingBatch {
   request: TranslationBatchRequest;
@@ -29,6 +34,7 @@ interface PendingBatch {
   relay: RelayAdapter;
   config: ProviderConfig;
   resolve: (result: TranslationBatchResult) => void;
+  enqueuedAt: number;
 }
 
 interface RuntimeTask {
@@ -115,7 +121,7 @@ export class TranslationScheduler {
     return new Promise((resolve) => {
       const runtime = this.runtimeTask(request.taskId);
       runtime.tabId = tabId;
-      runtime.queue.push({ request, tabId, relay, config, resolve });
+      runtime.queue.push({ request, tabId, relay, config, resolve, enqueuedAt: Date.now() });
       void this.dispatch();
     });
   }
@@ -160,10 +166,18 @@ export class TranslationScheduler {
     const initial = await getTaskJournal(request.taskId, request.sessionId);
     let attempt = initial?.batches[request.batchId]?.attempt ?? 0;
     let automaticRetries = 0;
+    let queuedMs = Math.max(0, Date.now() - pending.enqueuedAt);
 
     while (true) {
       if (runtime.cancelled) {
         const journal = await transitionBatch(request.taskId, request.batchId, 'cancelled');
+        this.recordAttempt(request, {
+          attempt,
+          sourceChars: chars,
+          queuedMs,
+          status: 'cancelled:CANCELLED',
+          totalMs: 0,
+        });
         return resultFrom(request, 'cancelled', journal, attempt, itemResults(request, 'cancelled', 'CANCELLED'));
       }
 
@@ -175,6 +189,13 @@ export class TranslationScheduler {
         { maxRequests: config.maxPageRequests ?? 100, maxChars: config.maxPageChars ?? 100_000 },
       )) {
         const journal = await transitionBatch(request.taskId, request.batchId, 'failed');
+        this.recordAttempt(request, {
+          attempt,
+          sourceChars: chars,
+          queuedMs,
+          status: 'failed:PAGE_BUDGET_EXCEEDED',
+          totalMs: 0,
+        });
         return resultFrom(request, 'failed', journal, attempt, itemResults(request, 'failed', 'PAGE_BUDGET_EXCEEDED'));
       }
 
@@ -194,11 +215,14 @@ export class TranslationScheduler {
         timedOut = true;
         controller.abort();
       }, config.timeoutMs ?? 25_000);
+      const dispatchStart = Date.now();
+      const timing: RelayFetchTiming = { headerMs: null, bodyMs: null, parseMs: null };
 
       try {
         const translated = await relay.translateItems(request.items, request, {
           signal: controller.signal,
           requestId: request.requestId,
+          timing,
         });
         const items: BatchItemResult[] = request.items.map((item) => {
           const output = translated.get(item.id);
@@ -207,6 +231,14 @@ export class TranslationScheduler {
             : { id: item.id, status: 'failed', error: 'RESPONSE_MISSING_ITEM' };
         });
         const status: BatchStatus = items.every((item) => item.status === 'completed') ? 'completed' : 'failed';
+        this.recordAttempt(request, {
+          attempt,
+          sourceChars: chars,
+          queuedMs,
+          timing,
+          status: status === 'completed' ? 'completed' : 'failed:RESPONSE_MISSING_ITEM',
+          totalMs: Date.now() - dispatchStart,
+        });
         const done = await transitionBatch(request.taskId, request.batchId, status);
         return resultFrom(request, status, done, attempt, items);
       } catch (error) {
@@ -216,8 +248,17 @@ export class TranslationScheduler {
           cancelled: runtime.cancelled,
           timedOut,
         });
+        this.recordAttempt(request, {
+          attempt,
+          sourceChars: chars,
+          queuedMs,
+          timing,
+          status: `${decision.terminalStatus}:${decision.code}`,
+          totalMs: Date.now() - dispatchStart,
+        });
         if (decision.retry) {
           automaticRetries++;
+          queuedMs = 0;
           const retryAfter = error instanceof RelayHttpError ? error.retryAfter : null;
           await wait(retryDelayMs(automaticRetries - 1, retryAfter) + Math.floor(Math.random() * 250));
           continue;
@@ -237,6 +278,31 @@ export class TranslationScheduler {
         runtime.active.delete(request.batchId);
       }
     }
+  }
+
+  private recordAttempt(
+    request: TranslationBatchRequest,
+    details: {
+      attempt: number;
+      sourceChars: number;
+      queuedMs: number;
+      timing?: RelayFetchTiming;
+      status: string;
+      totalMs: number;
+    },
+  ): void {
+    recordBatchDiagnostic({
+      requestId: request.requestId,
+      attempt: details.attempt,
+      itemCount: request.items.length,
+      sourceChars: details.sourceChars,
+      queuedMs: details.queuedMs,
+      headerMs: details.timing?.headerMs ?? null,
+      bodyMs: details.timing?.bodyMs ?? null,
+      parseMs: details.timing?.parseMs ?? null,
+      totalMs: details.totalMs,
+      status: sanitizeDiagnosticStatus(details.status),
+    });
   }
 
   async control(taskId: string, sessionId: string, action: TaskControlAction): Promise<boolean> {

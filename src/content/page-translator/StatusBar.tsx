@@ -54,7 +54,7 @@ export function StatusBar({
     <div className="st-status-bar">
       <div className="st-status-left">
         <AppLogo className="st-status-icon" />
-        <span className="st-status-text">
+        <span className="st-status-text" title={t('statusBar.progressHint')}>
           {preparing
             ? t('statusBar.preparing')
             : t(running ? 'statusBar.translatingProgress' : 'statusBar.translatedProgress', {
