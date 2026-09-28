@@ -82,7 +82,6 @@ export class PageTranslateEngine {
     this.displayMode = options.displayMode;
     this.progressListener = onProgress;
     this.taskId = crypto.randomUUID();
-    this.openStreamPort();
     this.domItems = extractTranslationItems(document.body, options.maxPageChars);
     this.domById = new Map(this.domItems.map((item) => [item.id, item]));
 
@@ -109,6 +108,8 @@ export class PageTranslateEngine {
     onProgress({ ...this.progress });
 
     const identity = this.currentIdentity();
+    await this.ensureStreamPort(identity);
+    if (!this.isCurrent(identity)) return;
     const tasks = this.batches.map((batch) => this.submitBatch(batch, options, onProgress));
     await Promise.allSettled(tasks);
     await this.finishTask(identity);
@@ -181,6 +182,8 @@ export class PageTranslateEngine {
     this.isCancelled = false;
     this.isRunning = true;
     const identity = this.currentIdentity();
+    await this.ensureStreamPort(identity);
+    if (!this.isCurrent(identity)) return;
     await Promise.allSettled(
       retryBatches.map((batch) => this.submitBatch(
         batch,
@@ -287,6 +290,8 @@ export class PageTranslateEngine {
 
       if (batch.status === 'queued' || batch.status === 'completed') {
         if (!this.isCurrent(identity)) return null;
+        await this.ensureStreamPort(identity);
+        if (!this.isCurrent(identity)) return null;
         const resumed = await browser.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: request });
         if (!this.isCurrent(identity)) return null;
         return resumed?.success ? resumed.data as TranslationBatchResult : null;
@@ -362,24 +367,62 @@ export class PageTranslateEngine {
     return true;
   }
 
-  private openStreamPort(): void {
+  private boundGeneration = 0;
+  private boundTaskId = '';
+
+  private async ensureStreamPort(identity: { taskId: string; sessionId: string; generation: number }): Promise<void> {
+    if (!this.isCurrent(identity) || this.streamClosed) return;
+    if (this.streamPort && this.boundTaskId === identity.taskId && this.boundGeneration === identity.generation) return;
+    await this.openStreamPort(identity);
+  }
+
+  private openStreamPort(identity: { taskId: string; sessionId: string; generation: number }): Promise<void> {
     this.closeStreamPort();
-    try {
-      const port = browser.runtime.connect({ name: PAGE_PORT_NAME });
-      this.streamPort = port;
-      port.onMessage.addListener((message: unknown) => this.onStreamMessage(message));
-      port.onDisconnect.addListener(() => {
-        if (this.streamPort === port) this.streamPort = null;
-      });
-      port.postMessage({
-        type: 'bind',
-        taskId: this.taskId,
-        sessionId: this.sessionId,
-        generation: this.generation,
-      });
-    } catch {
-      this.streamPort = null;
-    }
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      try {
+        const port = browser.runtime.connect({ name: PAGE_PORT_NAME });
+        this.streamPort = port;
+        port.onMessage.addListener((message: unknown) => {
+          if (this.streamPort !== port) return;
+          const record = message as { type?: string; taskId?: string; sessionId?: string; generation?: number };
+          if (record?.type === 'bound') {
+            if (record.taskId === identity.taskId
+              && record.sessionId === identity.sessionId
+              && record.generation === identity.generation
+              && this.isCurrent(identity)) {
+              this.boundTaskId = identity.taskId;
+              this.boundGeneration = identity.generation;
+            }
+            finish();
+            return;
+          }
+          this.onStreamMessage(message);
+        });
+        port.onDisconnect.addListener(() => {
+          if (this.streamPort === port) {
+            this.streamPort = null;
+            this.boundTaskId = '';
+            this.boundGeneration = 0;
+          }
+          finish();
+        });
+        port.postMessage({
+          type: 'bind',
+          taskId: identity.taskId,
+          sessionId: identity.sessionId,
+          generation: identity.generation,
+        });
+      } catch {
+        this.streamPort = null;
+        finish();
+      }
+    });
   }
 
   private closeStreamPort(): void {
@@ -387,8 +430,11 @@ export class PageTranslateEngine {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    this.streamPort?.disconnect();
+    const port = this.streamPort;
     this.streamPort = null;
+    this.boundTaskId = '';
+    this.boundGeneration = 0;
+    port?.disconnect();
   }
 
   private onStreamMessage(message: unknown): void {

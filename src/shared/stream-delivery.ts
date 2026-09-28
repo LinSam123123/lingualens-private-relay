@@ -158,6 +158,14 @@ function dispatchPortMessage(entry: PortEntry, message: unknown): void {
   const record = message && typeof message === 'object' ? message as Record<string, unknown> : null;
   if (record?.type === 'bind') {
     entry.binding = parseStreamBind(message, entry.tabId, entry.frameId);
+    if (entry.binding) {
+      entry.port.postMessage({
+        type: 'bound',
+        taskId: entry.binding.taskId,
+        sessionId: entry.binding.sessionId,
+        generation: entry.binding.generation,
+      });
+    }
     return;
   }
   if (record?.type === 'page-write' && entry.binding) {

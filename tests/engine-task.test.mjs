@@ -60,15 +60,38 @@ function textNode(value) {
 function installBrowser(recovery) {
   const batchCalls = [];
   const sent = [];
+  const ports = [];
   globalThis.browser = {
     runtime: {
       connect() {
-        return {
-          onMessage: { addListener() {} },
-          onDisconnect: { addListener() {} },
-          postMessage() {},
-          disconnect() {},
+        const messageListeners = [];
+        const disconnectListeners = [];
+        const port = {
+          onMessage: { addListener(fn) { messageListeners.push(fn); } },
+          onDisconnect: { addListener(fn) { disconnectListeners.push(fn); } },
+          postMessage(message) {
+            if (message?.type === 'bind') {
+              queueMicrotask(() => {
+                for (const listener of messageListeners) {
+                  listener({
+                    type: 'bound',
+                    taskId: message.taskId,
+                    sessionId: message.sessionId,
+                    generation: message.generation,
+                  });
+                }
+              });
+            }
+          },
+          disconnect() {
+            for (const listener of disconnectListeners) listener();
+          },
+          emit(message) {
+            for (const listener of messageListeners) listener(message);
+          },
         };
+        ports.push(port);
+        return port;
       },
       sendMessage(message) {
         if (message.type === 'TRANSLATE_BATCH') {
@@ -84,7 +107,7 @@ function installBrowser(recovery) {
       },
     },
   };
-  return { batchCalls, sent };
+  return { batchCalls, sent, ports };
 }
 
 const options = {
@@ -178,4 +201,56 @@ test('a late success, failure, or recovery from the previous task cannot change 
       scenario.name,
     );
   }
+});
+
+test('manual retry rebinds the stream port and shows an item before the final reply', async () => {
+  const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
+  const node = textNode('Retry after the port drops');
+  const harness = installBrowser(() => ({ success: false, error: 'NO_RECOVERY' }));
+  const engine = new PageTranslateEngine();
+  const first = engine.start(options, () => {});
+  await until(() => harness.batchCalls.length === 1);
+  const firstPayload = harness.batchCalls[0].message.payload;
+  harness.batchCalls[0].resolve(batchResult(firstPayload, '', 'interrupted/unknown'));
+  await first;
+  assert.equal(harness.ports.length, 1);
+  harness.ports[0].disconnect();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(harness.ports.length, 1);
+
+  const retry = engine.retryUnknown(options, () => {});
+  await until(() => harness.ports.length === 2 && harness.batchCalls.length === 2);
+  const retryPayload = harness.batchCalls[1].message.payload;
+  assert.equal(retryPayload.taskId, firstPayload.taskId);
+  harness.ports[1].emit({
+    type: 'stream-item',
+    taskId: retryPayload.taskId,
+    sessionId: retryPayload.sessionId,
+    generation: retryPayload.generation,
+    batchId: retryPayload.batchId,
+    requestId: retryPayload.requestId,
+    attempt: 2,
+    item: { id: retryPayload.items[0].id, text: 'STREAM-TEXT' },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(node.textContent.includes('STREAM-TEXT'), true);
+  harness.ports[0].emit({
+    type: 'stream-item',
+    taskId: firstPayload.taskId,
+    sessionId: firstPayload.sessionId,
+    generation: firstPayload.generation,
+    batchId: firstPayload.batchId,
+    requestId: firstPayload.requestId,
+    attempt: 1,
+    item: { id: firstPayload.items[0].id, text: 'OLD-PORT' },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(node.textContent.includes('OLD-PORT'), false);
+  const connects = harness.ports.length;
+  harness.ports[1].disconnect();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(harness.ports.length, connects);
+  harness.batchCalls[1].resolve(batchResult(retryPayload, 'FINAL-TEXT'));
+  await retry;
+  assert.equal(node.textContent.includes('STREAM-TEXT') || node.textContent.includes('FINAL-TEXT'), true);
 });

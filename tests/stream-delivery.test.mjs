@@ -118,7 +118,8 @@ test('port listeners queue until initialization, then reject the wrong sender an
   }]);
   assert.equal(JSON.stringify(listPageWrites()).includes('should not be stored'), false);
   assert.equal(publishStreamItem(itemMessage()), true);
-  assert.equal(content.posted[0].item.text, '你好');
+  assert.equal(content.posted.find((message) => message.type === 'stream-item').item.text, '你好');
+  assert.equal(content.posted.some((message) => message.type === 'bound'), true);
   assert.equal(publishStreamItem(itemMessage({ frameId: 1 })), false);
   assert.equal(publishStreamItem(itemMessage({ generation: 1 })), false);
 
