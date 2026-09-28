@@ -85,6 +85,7 @@ export function buildRelayBody(
   systemPrompt: string,
   inputJson: string,
   temperature: number,
+  stream = false,
 ): Record<string, unknown> {
   if (protocol === 'responses') {
     return {
@@ -92,6 +93,7 @@ export function buildRelayBody(
       instructions: systemPrompt,
       input: inputJson,
       temperature,
+      ...(stream ? { stream: true } : {}),
     };
   }
   return {
@@ -101,6 +103,6 @@ export function buildRelayBody(
       { role: 'user', content: inputJson },
     ],
     temperature,
-    stream: false,
+    stream,
   };
 }
