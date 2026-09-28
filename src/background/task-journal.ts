@@ -11,6 +11,8 @@ export interface BatchJournalEntry {
   attempt: number;
   chars: number;
   updatedAt: number;
+  /** Ids accepted from a stream. No source or translated text. */
+  completedItemIds?: string[];
 }
 
 export interface TaskJournalEntry {
@@ -93,6 +95,7 @@ export async function ensureTask(
       attempt: 0,
       chars: request.items.reduce((sum, item) => sum + item.text.length, 0),
       updatedAt: now,
+      completedItemIds: [],
     };
     task.updatedAt = now;
     journal[request.taskId] = task;
@@ -132,6 +135,45 @@ export async function setTaskStatus(
     task.status = status;
     task.updatedAt = Date.now();
     return structuredClone(task);
+  });
+}
+
+export async function consumeDispatchBudget(
+  taskId: string,
+  sessionId: string,
+  batchId: string,
+  addition: { requests: number; chars: number },
+  limits: { maxRequests: number; maxChars: number },
+  attempt: number,
+): Promise<{ ok: true; journal: TaskJournalEntry } | { ok: false; code: 'PAGE_BUDGET_EXCEEDED' | 'TASK_NOT_FOUND' }> {
+  return mutateJournal((journal) => {
+    const task = journal[taskId];
+    const batch = task?.batches[batchId];
+    if (!task || task.sessionId !== sessionId || !batch) return { ok: false as const, code: 'TASK_NOT_FOUND' as const };
+    if (task.requestsUsed + addition.requests > limits.maxRequests || task.charsUsed + addition.chars > limits.maxChars) {
+      return { ok: false as const, code: 'PAGE_BUDGET_EXCEEDED' as const };
+    }
+    const now = Date.now();
+    task.requestsUsed += addition.requests;
+    task.charsUsed += addition.chars;
+    batch.status = 'dispatched';
+    batch.attempt = attempt;
+    batch.updatedAt = now;
+    task.updatedAt = now;
+    return { ok: true as const, journal: structuredClone(task) };
+  });
+}
+
+export async function noteCompletedItems(taskId: string, batchId: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await mutateJournal((journal) => {
+    const batch = journal[taskId]?.batches[batchId];
+    if (!batch) return;
+    const merged = new Set(batch.completedItemIds ?? []);
+    for (const id of ids) merged.add(id);
+    batch.completedItemIds = [...merged];
+    batch.updatedAt = Date.now();
+    journal[taskId].updatedAt = batch.updatedAt;
   });
 }
 

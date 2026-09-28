@@ -8,6 +8,12 @@ export interface BatchDiagnostic {
   headerMs: number | null;
   bodyMs: number | null;
   parseMs: number | null;
+  /** Dispatch to the first translation text delta. Not header time, item time, or page write time. */
+  firstTextDeltaMs: number | null;
+  /** Dispatch to the first complete JSONL item. Not page write time. */
+  firstItemMs: number | null;
+  /** Dispatch to the first textContent write for this batch. Not item-parse time. */
+  firstPageWriteMs: number | null;
   totalMs: number;
   status: string;
 }
@@ -46,6 +52,9 @@ export function recordBatchDiagnostic(entry: BatchDiagnostic): void {
     headerMs: entry.headerMs == null || !Number.isFinite(entry.headerMs) ? null : Math.max(0, Math.round(entry.headerMs)),
     bodyMs: entry.bodyMs == null || !Number.isFinite(entry.bodyMs) ? null : Math.max(0, Math.round(entry.bodyMs)),
     parseMs: entry.parseMs == null || !Number.isFinite(entry.parseMs) ? null : Math.max(0, Math.round(entry.parseMs)),
+    firstTextDeltaMs: entry.firstTextDeltaMs == null || !Number.isFinite(entry.firstTextDeltaMs) ? null : Math.max(0, Math.round(entry.firstTextDeltaMs)),
+    firstItemMs: entry.firstItemMs == null || !Number.isFinite(entry.firstItemMs) ? null : Math.max(0, Math.round(entry.firstItemMs)),
+    firstPageWriteMs: entry.firstPageWriteMs == null || !Number.isFinite(entry.firstPageWriteMs) ? null : Math.max(0, Math.round(entry.firstPageWriteMs)),
     totalMs: Number.isFinite(entry.totalMs) ? Math.max(0, Math.round(entry.totalMs)) : 0,
     status: sanitizeDiagnosticStatus(entry.status),
   });

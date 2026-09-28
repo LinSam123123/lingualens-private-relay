@@ -111,6 +111,64 @@ export function retryDelayMs(attempt: number, retryAfter: string | null, now = D
   return Math.min(1000 * (2 ** attempt), 8000);
 }
 
+export interface StreamItemOutcome {
+  id: string;
+  status: 'completed' | 'failed' | 'interrupted/unknown' | 'cancelled';
+  error?: string;
+}
+
+/**
+ * Same request id with a smaller item list is not treated as idempotent.
+ * The relay may already have executed the original payload.
+ */
+export function manualRetryDoesNotClaimIdempotency(
+  requestId: string,
+  unfinishedIds: string[],
+): { requestId: string; itemIds: string[]; idempotent: false } {
+  return { requestId, itemIds: unfinishedIds, idempotent: false };
+}
+
+export function classifyStreamItems(input: {
+  expectedIds: string[];
+  acceptedIds: string[];
+  rejected: Array<{ id: string; reason: string }>;
+  terminal: 'completed' | 'truncated' | 'provider-error' | 'incomplete' | 'unsafe' | null;
+  cancelled: boolean;
+  timedOut: boolean;
+}): { status: 'completed' | 'failed' | 'interrupted/unknown' | 'cancelled'; code: string; items: StreamItemOutcome[] } {
+  const accepted = new Set(input.acceptedIds);
+  const rejected = new Map(input.rejected.map((item) => [item.id, item.reason]));
+  const items: StreamItemOutcome[] = input.expectedIds.map((id) => {
+    if (accepted.has(id)) return { id, status: 'completed' };
+    if (input.cancelled) return { id, status: 'cancelled', error: 'CANCELLED' };
+    const reason = rejected.get(id);
+    if (reason && (input.terminal === 'completed' || input.terminal === 'truncated' || input.terminal === 'provider-error')) {
+      return { id, status: 'failed', error: reason };
+    }
+    if (input.timedOut || input.terminal === 'incomplete' || input.terminal === 'unsafe' || input.terminal == null) {
+      return {
+        id,
+        status: 'interrupted/unknown',
+        error: input.timedOut ? 'REQUEST_TIMEOUT_UNKNOWN' : 'STREAM_INTERRUPTED_UNKNOWN',
+      };
+    }
+    if (input.terminal === 'truncated') return { id, status: 'failed', error: 'RESPONSE_TRUNCATED' };
+    if (input.terminal === 'provider-error') return { id, status: 'failed', error: 'STREAM_PROVIDER_ERROR' };
+    return { id, status: 'failed', error: 'RESPONSE_MISSING_ITEM' };
+  });
+  const status = items.every((item) => item.status === 'completed')
+    ? 'completed'
+    : items.some((item) => item.status === 'interrupted/unknown')
+      ? 'interrupted/unknown'
+      : items.some((item) => item.status === 'cancelled')
+        ? 'cancelled'
+        : 'failed';
+  const code = status === 'completed'
+    ? 'completed'
+    : items.find((item) => item.status !== 'completed')?.error ?? status;
+  return { status, code, items };
+}
+
 export function canConsumeBudget(
   current: { requestsUsed: number; charsUsed: number },
   addition: { requests: number; chars: number },

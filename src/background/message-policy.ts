@@ -4,6 +4,7 @@ export interface RuntimeSenderLike {
   id?: string;
   url?: string;
   tab?: { id?: number };
+  frameId?: number;
 }
 
 export function isOwnExtensionSender(sender: RuntimeSenderLike, extensionId: string): boolean {

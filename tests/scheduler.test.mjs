@@ -82,6 +82,7 @@ test('journal converts dispatched batches to unknown with one batch-level write'
           batch: {
             batchId: 'batch', requestId: 'request-id', itemIds: ['item-1', 'item-2'],
             status: 'dispatched', attempt: 1, chars: 5, updatedAt: Date.now(),
+            completedItemIds: ['item-1'],
           },
         },
       },
@@ -99,6 +100,7 @@ test('journal converts dispatched batches to unknown with one batch-level write'
   const { initializeTaskJournal } = await import('../src/background/task-journal.ts');
   await initializeTaskJournal();
   assert.equal(store.relayTaskJournal.task.batches.batch.status, 'interrupted/unknown');
+  assert.deepEqual(store.relayTaskJournal.task.batches.batch.completedItemIds, ['item-1']);
   assert.equal(writes, 1);
 });
 

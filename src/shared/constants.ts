@@ -1,10 +1,10 @@
 import type { AppSettings, ProviderConfig } from './types';
-import { resolveDefaultTargetLang } from './default-target-lang';
+import { resolveDefaultTargetLang } from './default-target-lang.ts';
 
 export const DEFAULT_SYSTEM_PROMPT =
   'You are a professional translator. Translate the following text from {sourceLang} to {targetLang}. Preserve the original formatting, tone, and style. Only output the translated text, nothing else.';
 
-export { SUPPORTED_LANGUAGES } from './languages';
+export { SUPPORTED_LANGUAGES } from './languages.ts';
 
 export const PROVIDER_PRESETS: Record<string, Omit<ProviderConfig, 'id' | 'enabled'>> = {
   'openai-compat': {
@@ -78,6 +78,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
       maxPageChars: 100_000,
       maxPageRequests: 100,
       retryGatewayErrors: false,
+      streamTranslations: false,
     },
   ],
   chunkingMode: 'quality',

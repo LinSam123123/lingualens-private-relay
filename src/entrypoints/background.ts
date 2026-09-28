@@ -7,6 +7,8 @@ import {
 import { isTranslatableTabUrl } from '../shared/translatable-tab';
 import type { SelectionTriggerMode } from '../shared/types';
 import { initializationPromise, requireInitialization } from '../background/initialization';
+import { listenForPagePort } from '../background/page-port';
+import { PAGE_PORT_NAME } from '../shared/stream-delivery';
 
 export default defineBackground(() => {
   registerInstallOnboarding(initializationPromise);
@@ -239,6 +241,11 @@ export default defineBackground(() => {
       .then(sendResponse)
       .catch(() => sendResponse({ success: false, error: 'BACKGROUND_INITIALIZATION_FAILED' }));
     return true;
+  });
+
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name !== PAGE_PORT_NAME) return;
+    listenForPagePort(port, requireInitialization().then(() => browser.runtime.id));
   });
 
   browser.commands.onCommand.addListener(async (command) => {

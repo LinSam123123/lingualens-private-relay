@@ -10,6 +10,12 @@ import {
   type BatchDefinition,
   type NetworkItem,
 } from './page-batching';
+import {
+  decideStreamApply,
+  PAGE_PORT_NAME,
+  STREAM_DOM_FLUSH_MS,
+  type StreamItemMessage,
+} from '../../shared/stream-delivery';
 
 export type DisplayMode = 'replace' | 'bilingual';
 
@@ -50,6 +56,14 @@ export class PageTranslateEngine {
   private progress: TranslateProgress = {
     total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0,
   };
+  private generation = 0;
+  private streamClosed = false;
+  private displayMode: DisplayMode = 'bilingual';
+  private progressListener: ProgressCallback | null = null;
+  private streamPort: Browser.runtime.Port | null = null;
+  private domRefresh = new Set<string>();
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private reportedWrites = new Set<string>();
 
   get running(): boolean {
     return this.isRunning;
@@ -63,7 +77,12 @@ export class PageTranslateEngine {
     if (this.isRunning) return;
     this.resetTaskState();
     this.isRunning = true;
+    this.generation += 1;
+    this.streamClosed = false;
+    this.displayMode = options.displayMode;
+    this.progressListener = onProgress;
     this.taskId = crypto.randomUUID();
+    this.openStreamPort();
     this.domItems = extractTranslationItems(document.body, options.maxPageChars);
     this.domById = new Map(this.domItems.map((item) => [item.id, item]));
 
@@ -115,12 +134,17 @@ export class PageTranslateEngine {
   async cancel(): Promise<void> {
     if (!this.taskId || this.isCancelled) return;
     this.isCancelled = true;
+    this.streamClosed = true;
     this.isPaused = false;
+    this.closeStreamPort();
     await this.control('cancel');
     this.isRunning = false;
   }
 
   async restore(): Promise<void> {
+    this.generation += 1;
+    this.streamClosed = true;
+    this.closeStreamPort();
     if (this.taskId) await this.control('restore');
     this.isCancelled = true;
     this.isRunning = false;
@@ -155,6 +179,7 @@ export class PageTranslateEngine {
       .filter((item) => item.status === status)
       .map((item) => item.id);
     if (ids.length === 0) return;
+    // Same request id, fewer items. This is not an idempotent replay.
     const retryBatches = this.batches
       .map((batch) => ({ ...batch, items: batch.items.filter((item) => ids.includes(item.id)) }))
       .filter((batch) => batch.items.length > 0);
@@ -177,6 +202,7 @@ export class PageTranslateEngine {
   }
 
   switchMode(mode: DisplayMode): void {
+    this.displayMode = mode;
     for (const item of this.domItems) {
       if (item.node.parentNode) item.node.textContent = item.originalText;
     }
@@ -201,6 +227,7 @@ export class PageTranslateEngine {
       items: batch.items.map(({ id, text }) => ({ id, text })),
       manualRetryUnknown,
       manualRetryFailed,
+      generation: this.generation,
     };
     try {
       const response = await browser.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: request });
@@ -214,6 +241,7 @@ export class PageTranslateEngine {
       if (recovered) this.applyBatchResult(recovered, options.displayMode);
       else this.recordBatchFailure(batch, 'interrupted/unknown', 'BACKGROUND_INTERRUPTED');
     } finally {
+      this.flushDom(this.displayMode);
       this.recountProgress();
       onProgress({ ...this.progress });
     }
@@ -266,14 +294,16 @@ export class PageTranslateEngine {
   private applyBatchResult(result: TranslationBatchResult, mode: DisplayMode): void {
     for (const item of result.items) {
       if (item.status === 'completed' && item.translated !== undefined) {
-        this.translatedChunks.set(item.id, item.translated);
-        this.itemFailures.delete(item.id);
-      } else {
+        if (!this.streamClosed && !this.translatedChunks.has(item.id)) {
+          this.translatedChunks.set(item.id, item.translated);
+          this.queueDomItem(item.id, result.batchId, result.requestId);
+        }
+        if (this.translatedChunks.has(item.id)) this.itemFailures.delete(item.id);
+      } else if (!this.translatedChunks.has(item.id)) {
         this.itemFailures.set(item.id, item);
       }
-      const network = this.batches.flatMap((batch) => batch.items).find((entry) => entry.id === item.id);
-      if (network) this.applyDomItemIfReady(network.domItemId, mode);
     }
+    this.flushDom(mode);
   }
 
   private recordBatchFailure(
@@ -281,19 +311,22 @@ export class PageTranslateEngine {
     status: 'failed' | 'interrupted/unknown' | 'cancelled',
     error: string,
   ): void {
-    for (const item of batch.items) this.itemFailures.set(item.id, { id: item.id, status, error });
+    for (const item of batch.items) {
+      if (this.translatedChunks.has(item.id)) continue;
+      this.itemFailures.set(item.id, { id: item.id, status, error });
+    }
   }
 
-  private applyDomItemIfReady(domItemId: string, mode: DisplayMode): void {
+  private applyDomItemIfReady(domItemId: string, mode: DisplayMode): boolean {
     const item = this.domById.get(domItemId);
     const chunks = this.chunksByDomId.get(domItemId) ?? [];
-    if (!item || chunks.length === 0 || chunks.some((chunk) => !this.translatedChunks.has(chunk.id))) return;
+    if (!item || chunks.length === 0 || chunks.some((chunk) => !this.translatedChunks.has(chunk.id))) return false;
     const translated = chunks.map((chunk) => this.translatedChunks.get(chunk.id)!).join(' ');
     if (mode === 'replace') {
       item.node.textContent = `${item.leadingWhitespace}${translated}${item.trailingWhitespace}`;
-      return;
+      return true;
     }
-    if (this.bilingualMarkers.some((marker) => marker.dataset.lingualensFor === domItemId)) return;
+    if (this.bilingualMarkers.some((marker) => marker.dataset.lingualensFor === domItemId)) return false;
     const marker = document.createElement('span');
     marker.dataset.lingualensTranslation = 'true';
     marker.dataset.lingualensFor = domItemId;
@@ -301,6 +334,93 @@ export class PageTranslateEngine {
     marker.textContent = translated;
     item.node.parentNode?.insertBefore(marker, item.node.nextSibling);
     this.bilingualMarkers.push(marker);
+    return true;
+  }
+
+  private openStreamPort(): void {
+    this.closeStreamPort();
+    try {
+      const port = browser.runtime.connect({ name: PAGE_PORT_NAME });
+      this.streamPort = port;
+      port.onMessage.addListener((message: unknown) => this.onStreamMessage(message));
+      port.onDisconnect.addListener(() => {
+        if (this.streamPort === port) this.streamPort = null;
+      });
+      port.postMessage({
+        type: 'bind',
+        taskId: this.taskId,
+        sessionId: this.sessionId,
+        generation: this.generation,
+      });
+    } catch {
+      this.streamPort = null;
+    }
+  }
+
+  private closeStreamPort(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.streamPort?.disconnect();
+    this.streamPort = null;
+  }
+
+  private onStreamMessage(message: unknown): void {
+    if (!message || typeof message !== 'object') return;
+    const value = message as Partial<StreamItemMessage>;
+    if (value.type !== 'stream-item' || !value.item || !value.batchId || !value.requestId) return;
+    const decision = decideStreamApply({
+      taskId: this.taskId,
+      sessionId: this.sessionId,
+      generation: this.generation,
+      closed: this.streamClosed,
+      translatedIds: new Set(this.translatedChunks.keys()),
+      expectedIds: new Set(this.batches.flatMap((batch) => batch.items.map((item) => item.id))),
+    }, value as StreamItemMessage);
+    if (decision !== 'apply') return;
+    this.translatedChunks.set(value.item.id, value.item.text);
+    this.itemFailures.delete(value.item.id);
+    this.queueDomItem(value.item.id, value.batchId, value.requestId);
+    this.recountProgress();
+    this.progressListener?.({ ...this.progress });
+  }
+
+  private queueDomItem(itemId: string, batchId: string, requestId: string): void {
+    const network = this.batches.flatMap((batch) => batch.items).find((entry) => entry.id === itemId);
+    if (!network) return;
+    this.domRefresh.add(network.domItemId);
+    if (!this.writeBatchByDom) this.writeBatchByDom = new Map();
+    if (!this.writeBatchByDom.has(network.domItemId)) {
+      this.writeBatchByDom.set(network.domItemId, { batchId, requestId });
+    }
+    if (this.flushTimer != null) return;
+    this.flushTimer = setTimeout(() => this.flushDom(this.displayMode), STREAM_DOM_FLUSH_MS);
+  }
+
+  private writeBatchByDom: Map<string, { batchId: string; requestId: string }> | null = null;
+
+  private flushDom(mode: DisplayMode): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    for (const domItemId of this.domRefresh) {
+      const wrote = this.applyDomItemIfReady(domItemId, mode);
+      const meta = this.writeBatchByDom?.get(domItemId);
+      if (wrote && meta && !this.reportedWrites.has(meta.batchId)) {
+        this.reportedWrites.add(meta.batchId);
+        this.streamPort?.postMessage({
+          type: 'page-write',
+          taskId: this.taskId,
+          sessionId: this.sessionId,
+          generation: this.generation,
+          batchId: meta.batchId,
+          requestId: meta.requestId,
+        });
+      }
+    }
+    this.domRefresh.clear();
   }
 
   private recountProgress(): void {
@@ -341,10 +461,14 @@ export class PageTranslateEngine {
   }
 
   private resetTaskState(): void {
+    this.closeStreamPort();
     this.translatedChunks.clear();
     this.itemFailures.clear();
     this.chunksByDomId.clear();
     this.batches = [];
+    this.domRefresh.clear();
+    this.reportedWrites.clear();
+    this.writeBatchByDom = new Map();
     this.taskId = '';
     this.progress = { total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0 };
   }

@@ -143,6 +143,9 @@ test('secret status is options-only and no message returns a raw API key', async
   assert.match(router, /case 'GET_BATCH_DIAGNOSTICS':\s*[\s\S]*?OPTIONS_ONLY/);
   assert.match(router, /case 'SET_BATCH_DIAGNOSTICS_ENABLED':\s*\{[\s\S]*?OPTIONS_ONLY/);
   assert.match(router, /case 'CLEAR_BATCH_DIAGNOSTICS':\s*[\s\S]*?OPTIONS_ONLY/);
+  const background = await readFile(new URL('../src/entrypoints/background.ts', import.meta.url), 'utf8');
+  assert.match(background, /onConnect\.addListener/);
+  assert.match(background, /listenForPagePort\(port, requireInitialization\(\)/);
   assert.match(router, /UNSUPPORTED_TAB/);
   assert.match(router, /CONTENT_SCRIPT_MISSING/);
   assert.match(router, /publicCredentialIsolationProbe/);

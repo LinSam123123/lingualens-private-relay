@@ -34,6 +34,8 @@ export interface ProviderConfig {
   maxPageChars?: number;
   maxPageRequests?: number;
   retryGatewayErrors?: boolean;
+  /** When true, page batches use SSE JSONL and apply complete items before the batch ends. */
+  streamTranslations?: boolean;
 }
 
 export type RelayProtocol = 'chat-completions' | 'responses';
@@ -76,6 +78,8 @@ export interface TranslationBatchRequest {
   items: TranslationItem[];
   manualRetryUnknown?: boolean;
   manualRetryFailed?: boolean;
+  /** Page-task generation. Late stream messages from an older generation are ignored. */
+  generation?: number;
 }
 
 export interface BatchItemResult {

@@ -1,9 +1,13 @@
 import type { TranslateRequest, TranslateResult, ProviderConfig } from '../shared/types';
-import { DEFAULT_SYSTEM_PROMPT } from '../shared/constants';
-import { getLanguageName } from '../shared/languages';
+import { DEFAULT_SYSTEM_PROMPT } from '../shared/constants.ts';
+import { getLanguageName } from '../shared/languages.ts';
 
 export abstract class BaseProvider {
-  constructor(protected config: ProviderConfig) {}
+  protected config: ProviderConfig;
+
+  constructor(config: ProviderConfig) {
+    this.config = config;
+  }
 
   abstract translate(request: TranslateRequest): Promise<TranslateResult>;
 

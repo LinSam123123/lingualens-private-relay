@@ -1,4 +1,4 @@
-import { SUPPORTED_LANGUAGES } from './languages';
+import { SUPPORTED_LANGUAGES } from './languages.ts';
 
 const SUPPORTED_TARGET_CODES = new Set(
   SUPPORTED_LANGUAGES.filter((l) => l.code !== 'auto').map((l) => l.code),
