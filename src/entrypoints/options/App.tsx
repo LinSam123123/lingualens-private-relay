@@ -25,7 +25,7 @@ import {
 } from '../../shared/url-policy';
 import type { PublicCredentialIsolationProbe } from '../../shared/credential-isolation';
 import { isOrdinaryHttpTabUrl } from '../../shared/translatable-tab';
-import type { BatchDiagnostic } from '../../background/batch-diagnostics';
+import type { BatchDiagnostic, TaskTiming } from '../../background/batch-diagnostics';
 
 export function App() {
   const { t } = useTranslation();
@@ -50,6 +50,7 @@ export function App() {
   const [uiLang, setUiLang] = useState(getUILanguage());
   const [batchDiagEnabled, setBatchDiagEnabled] = useState(false);
   const [batchDiagEntries, setBatchDiagEntries] = useState<BatchDiagnostic[]>([]);
+  const [taskTimings, setTaskTimings] = useState<TaskTiming[]>([]);
   const [batchDiagBuild, setBatchDiagBuild] = useState('');
   const originalPermissionRef = useRef<string | null>(null);
   const extensionVersion = browser.runtime.getManifest().version;
@@ -245,10 +246,12 @@ export function App() {
     enabled: boolean;
     build: string;
     entries: BatchDiagnostic[];
+    tasks?: TaskTiming[];
   }) => {
     setBatchDiagEnabled(data.enabled);
     setBatchDiagBuild(data.build);
     setBatchDiagEntries(data.entries);
+    setTaskTimings(data.tasks ?? []);
   };
 
   const refreshBatchDiagnostics = async () => {
@@ -256,6 +259,7 @@ export function App() {
       enabled: boolean;
       build: string;
       entries: BatchDiagnostic[];
+      tasks?: TaskTiming[];
     }> = await browser.runtime.sendMessage({ type: 'GET_BATCH_DIAGNOSTICS' });
     if (response.success) applyBatchDiagnostics(response.data);
   };
@@ -265,6 +269,7 @@ export function App() {
       enabled: boolean;
       build: string;
       entries: BatchDiagnostic[];
+      tasks?: TaskTiming[];
     }> = await browser.runtime.sendMessage({
       type: 'SET_BATCH_DIAGNOSTICS_ENABLED',
       payload: { enabled },
@@ -277,6 +282,7 @@ export function App() {
       enabled: boolean;
       build: string;
       entries: BatchDiagnostic[];
+      tasks?: TaskTiming[];
     }> = await browser.runtime.sendMessage({ type: 'CLEAR_BATCH_DIAGNOSTICS' });
     if (response.success) applyBatchDiagnostics(response.data);
   };
@@ -439,6 +445,9 @@ export function App() {
                       <th className="pr-2 py-1 font-medium">{t('options.diagHeader')}</th>
                       <th className="pr-2 py-1 font-medium">{t('options.diagBody')}</th>
                       <th className="pr-2 py-1 font-medium">{t('options.diagParse')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagFirstText')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagFirstItem')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.diagFirstWrite')}</th>
                       <th className="pr-2 py-1 font-medium">{t('options.diagTotal')}</th>
                       <th className="py-1 font-medium">{t('options.diagStatus')}</th>
                     </tr>
@@ -454,6 +463,9 @@ export function App() {
                         <td className="pr-2 py-1">{entry.headerMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.bodyMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.parseMs ?? '—'}</td>
+                        <td className="pr-2 py-1">{entry.firstTextDeltaMs ?? '—'}</td>
+                        <td className="pr-2 py-1">{entry.firstItemMs ?? '—'}</td>
+                        <td className="pr-2 py-1">{entry.firstPageWriteMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.totalMs}</td>
                         <td className="py-1">{entry.status}</td>
                       </tr>
@@ -462,19 +474,41 @@ export function App() {
                 </table>
               </div>
             )}
+            {taskTimings.length > 0 && (
+              <p className="text-xs text-gray-500 mt-2">
+                {t('options.taskTiming', {
+                  write: taskTimings.at(-1)?.firstPageWriteMs ?? '—',
+                  end: taskTimings.at(-1)?.endedMs ?? '—',
+                  fetch: taskTimings.at(-1)?.fetchCount ?? 0,
+                })}
+              </p>
+            )}
           </div>
         </Section>
 
         <Section title={t('options.translationLimits')}>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <NumberField label={t('options.timeout')} value={(relay.timeoutMs ?? 25_000) / 1000} min={5} max={120} onChange={(value) => updateRelay({ timeoutMs: value * 1000 })} />
-            <NumberField label={t('options.concurrency')} value={relay.maxConcurrency ?? 2} min={1} max={4} onChange={(value) => updateRelay({ maxConcurrency: value })} />
+            <NumberField label={t('options.concurrency')} value={relay.maxConcurrency ?? 2} min={1} max={10} onChange={(value) => updateRelay({ maxConcurrency: value })} />
             <NumberField label={t('options.batchChars')} value={relay.maxCharsPerRequest ?? 8_000} min={500} max={20_000} onChange={(value) => updateRelay({ maxCharsPerRequest: value })} />
             <NumberField label={t('options.batchItems')} value={relay.maxItemsPerRequest ?? 0} min={0} max={200} onChange={(value) => updateRelay({ maxItemsPerRequest: value })} />
             <NumberField label={t('options.pageChars')} value={relay.maxPageChars ?? 100_000} min={1_000} max={1_000_000} onChange={(value) => updateRelay({ maxPageChars: value })} />
             <NumberField label={t('options.pageRequests')} value={relay.maxPageRequests ?? 100} min={1} max={1_000} onChange={(value) => updateRelay({ maxPageRequests: value })} />
           </div>
           <p className="text-xs text-gray-500 mt-3">{t('options.batchItemsHelp')}</p>
+          <p className="text-xs text-gray-500 mt-1">{t('options.concurrencyHelp')}</p>
+          <label className="mt-4 flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={relay.streamTranslations === true}
+              onChange={(event) => updateRelay({ streamTranslations: event.target.checked })}
+            />
+            <span>
+              <strong className="block text-sm text-gray-700">{t('options.streamTranslations')}</strong>
+              <span className="block text-xs text-gray-500 mt-1">{t('options.streamTranslationsHelp')}</span>
+            </span>
+          </label>
           <label className="mt-5 flex items-start gap-3 cursor-pointer">
             <input type="checkbox" className="mt-1" checked={relay.retryGatewayErrors === true} onChange={(e) => updateRelay({ retryGatewayErrors: e.target.checked })} />
             <span><strong className="block text-sm text-gray-700">{t('options.gatewayRetry')}</strong><span className="block text-xs text-gray-500 mt-1">{t('options.gatewayRetryWarning')}</span></span>

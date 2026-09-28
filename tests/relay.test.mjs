@@ -47,4 +47,7 @@ test('redirect diagnostics instruct users to enter the final Base URL', async ()
   ]);
   assert.match(english.options.redirectNotAllowed, /final Base URL/i);
   assert.match(chinese.options.redirectNotAllowed, /\u6700\u7ec8 Base URL/);
+  assert.match(english.options.streamTranslationsHelp, /not automatically resent/i);
+  assert.match(chinese.options.streamTranslationsHelp, /不会自动改发非流式/);
+  assert.match(chinese.options.concurrencyHelp, /5–10/);
 });

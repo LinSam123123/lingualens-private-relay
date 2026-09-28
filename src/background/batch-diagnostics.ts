@@ -18,8 +18,19 @@ export interface BatchDiagnostic {
   status: string;
 }
 
-export const BATCH_DIAGNOSTICS_BUILD = 'batch-timing-v1';
+export const BATCH_DIAGNOSTICS_BUILD = 'stream-timing-v1';
 const MAX_ENTRIES = 40;
+
+export interface TaskTiming {
+  taskId: string;
+  /** Task start to the first textContent write. Not the first JSONL item. */
+  firstPageWriteMs: number | null;
+  /** Task start to the complete control. Not a single batch total. */
+  endedMs: number | null;
+  fetchCount: number;
+}
+
+const taskTimings: TaskTiming[] = [];
 const REQUEST_ID_PATTERN = /^[a-zA-Z0-9-]{8,128}$/;
 const STATUS_PATTERN = /^(completed|failed|cancelled|interrupted\/unknown)(:[A-Z0-9_]{1,48})?$/;
 
@@ -67,6 +78,25 @@ export function listBatchDiagnostics(): BatchDiagnostic[] {
 
 export function clearBatchDiagnostics(): void {
   entries.length = 0;
+  taskTimings.length = 0;
+}
+
+export function recordTaskTiming(entry: TaskTiming): void {
+  if (!enabled) return;
+  if (!/^[a-zA-Z0-9-]{8,128}$/.test(entry.taskId)) return;
+  taskTimings.push({
+    taskId: entry.taskId,
+    firstPageWriteMs: entry.firstPageWriteMs == null || !Number.isFinite(entry.firstPageWriteMs)
+      ? null
+      : Math.max(0, Math.round(entry.firstPageWriteMs)),
+    endedMs: entry.endedMs == null || !Number.isFinite(entry.endedMs) ? null : Math.max(0, Math.round(entry.endedMs)),
+    fetchCount: Number.isFinite(entry.fetchCount) ? Math.max(0, Math.floor(entry.fetchCount)) : 0,
+  });
+  if (taskTimings.length > MAX_ENTRIES) taskTimings.splice(0, taskTimings.length - MAX_ENTRIES);
+}
+
+export function listTaskTimings(): TaskTiming[] {
+  return taskTimings.map((entry) => ({ ...entry }));
 }
 
 export function batchDiagnosticsSnapshot(): {
@@ -74,16 +104,19 @@ export function batchDiagnosticsSnapshot(): {
   build: string;
   cap: number;
   entries: BatchDiagnostic[];
+  tasks: TaskTiming[];
 } {
   return {
     enabled,
     build: BATCH_DIAGNOSTICS_BUILD,
     cap: MAX_ENTRIES,
     entries: listBatchDiagnostics(),
+    tasks: listTaskTimings(),
   };
 }
 
 export function resetBatchDiagnosticsForTests(): void {
   enabled = false;
   entries.length = 0;
+  taskTimings.length = 0;
 }

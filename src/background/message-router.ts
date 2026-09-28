@@ -125,7 +125,8 @@ export async function saveSettings(partial: Partial<AppSettings>): Promise<AppSe
   if ((relay.model?.length ?? 0) > 200) throw new Error('MODEL_NAME_TOO_LONG');
   if ((normalized.promptTemplate?.length ?? 0) > 12_000) throw new Error('PROMPT_TOO_LONG');
   relay.timeoutMs = Math.min(120_000, Math.max(5_000, relay.timeoutMs ?? 25_000));
-  relay.maxConcurrency = Math.min(4, Math.max(1, relay.maxConcurrency ?? 2));
+  relay.maxConcurrency = Math.min(10, Math.max(1, relay.maxConcurrency ?? 2));
+  relay.streamTranslations = relay.streamTranslations === true;
   relay.maxCharsPerRequest = Math.min(20_000, Math.max(500, relay.maxCharsPerRequest ?? 8_000));
   relay.maxItemsPerRequest = Math.min(200, Math.max(0, Math.floor(relay.maxItemsPerRequest ?? 0) || 0));
   relay.maxPageChars = Math.min(1_000_000, Math.max(1_000, relay.maxPageChars ?? 100_000));

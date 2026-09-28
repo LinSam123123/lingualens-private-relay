@@ -29,6 +29,7 @@ import { setPageWriteListener } from '../shared/stream-delivery.ts';
 import type { StreamTerminalKind } from '../shared/relay-stream';
 import {
   recordBatchDiagnostic,
+  recordTaskTiming,
   sanitizeDiagnosticStatus,
 } from './batch-diagnostics.ts';
 import { validateBatchLimits } from '../content/page-translator/page-batching.ts';
@@ -90,6 +91,8 @@ export class TranslationScheduler {
   private checkpointTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private writeOffsets = new Map<string, { dispatchAt: number; writeAt: number | null }>();
   private writesBound = false;
+  private taskStarted = new Map<string, number>();
+  private taskFirstWrite = new Map<string, number>();
 
   get activeSlotCount(): number {
     return this.running;
@@ -113,6 +116,7 @@ export class TranslationScheduler {
   ): Promise<TranslationBatchResult> {
     this.validateRequest(request, config);
     this.maxConcurrency = Math.min(10, Math.max(1, config.maxConcurrency ?? 2));
+    if (!this.taskStarted.has(request.taskId)) this.taskStarted.set(request.taskId, Date.now());
     const journal = await ensureTask(request, tabId);
     const prior = journal.batches[request.batchId];
     if (prior.requestId !== request.requestId) throw new Error('REQUEST_ID_MISMATCH');
@@ -334,8 +338,11 @@ export class TranslationScheduler {
     this.writesBound = true;
     setPageWriteListener((write, receivedAt) => {
       const slot = this.writeOffsets.get(write.requestId);
-      if (!slot || slot.writeAt != null) return;
-      slot.writeAt = receivedAt;
+      if (slot && slot.writeAt == null) slot.writeAt = receivedAt;
+      if (!this.taskFirstWrite.has(write.taskId)) {
+        const started = this.taskStarted.get(write.taskId);
+        if (started) this.taskFirstWrite.set(write.taskId, Math.max(0, receivedAt - started));
+      }
     });
   }
 
@@ -476,6 +483,15 @@ export class TranslationScheduler {
       }
     }
     const journal = await setTaskStatus(taskId, sessionId, action);
+    if (action === 'complete') {
+      const started = this.taskStarted.get(taskId);
+      recordTaskTiming({
+        taskId,
+        firstPageWriteMs: this.taskFirstWrite.get(taskId) ?? null,
+        endedMs: started ? Date.now() - started : null,
+        fetchCount: journal?.requestsUsed ?? 0,
+      });
+    }
     return Boolean(journal);
   }
 
