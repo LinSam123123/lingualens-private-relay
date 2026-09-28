@@ -254,9 +254,10 @@ export class RelayAdapter extends BaseProvider {
     }
     const parser = new RelayEventStreamParser(this.protocol, items.map((item) => item.id));
     const reader = response.body.getReader();
-    const parseStarted = performance.now();
+    let parseMs = 0;
+    let sawTerminal = false;
     try {
-      while (true) {
+      while (!sawTerminal) {
         if (options.signal?.aborted) {
           throw new DOMException('Aborted', 'AbortError');
         }
@@ -264,11 +265,23 @@ export class RelayAdapter extends BaseProvider {
         const chunk = await reader.read();
         if (options.timing) options.timing.bodyMs = (options.timing.bodyMs ?? 0) + Math.round(performance.now() - bodyStarted);
         if (chunk.done) break;
-        yield* parser.push(chunk.value);
+        const parsedAt = performance.now();
+        const events = parser.push(chunk.value);
+        parseMs += performance.now() - parsedAt;
+        yield* events;
+        if (events.some((event) => event.type === 'terminal')) {
+          sawTerminal = true;
+          break;
+        }
       }
-      yield* parser.finish();
+      if (!sawTerminal) {
+        const parsedAt = performance.now();
+        const events = parser.finish();
+        parseMs += performance.now() - parsedAt;
+        yield* events;
+      }
     } finally {
-      if (options.timing) options.timing.parseMs = Math.round(performance.now() - parseStarted);
+      if (options.timing) options.timing.parseMs = Math.round(parseMs);
       await reader.cancel().catch(() => undefined);
     }
   }
