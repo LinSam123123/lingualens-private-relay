@@ -28,6 +28,7 @@ import {
 import { RelayAdapter } from '../providers/relay';
 import { TranslationScheduler } from './scheduler';
 import { getTaskJournal } from './task-journal';
+import { combineBatchResult } from './batch-result';
 import { cacheOnlyDiagnostic, recordBatchDiagnostic } from './batch-diagnostics';
 import {
   batchDiagnosticsSnapshot,
@@ -307,22 +308,11 @@ async function handleTranslationBatch(
   }
 
   const scheduledById = new Map(scheduled?.items.map((item) => [item.id, item]) ?? []);
-  const items = cached.map(({ item, result }) => result
-    ? { id: item.id, status: 'completed' as const, translated: result.translated }
-    : scheduledById.get(item.id) ?? { id: item.id, status: 'failed' as const, error: 'BATCH_RESULT_MISSING' });
-  const status = items.every((item) => item.status === 'completed')
-    ? 'completed'
-    : scheduled?.status ?? 'failed';
-  return {
-    taskId: request.taskId,
-    batchId: request.batchId,
-    requestId: request.requestId,
-    status,
-    items,
-    attempts: scheduled?.attempts ?? 0,
-    requestsUsed: scheduled?.requestsUsed ?? 0,
-    charsUsed: scheduled?.charsUsed ?? 0,
-  };
+  return combineBatchResult(request, cached.map(({ item, result }) => ({
+    id: item.id,
+    cachedText: result?.translated ?? null,
+    scheduled: scheduledById.get(item.id),
+  })), scheduled);
 }
 
 async function handleGetModels(): Promise<MessageResponse<ModelListResult>> {

@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { type DisplayMode, type TranslateProgress } from './engine';
+import { statusBarFlags } from './status-bar-state';
 import { AppLogo } from '../../shared/AppLogo';
 
 interface Props {
@@ -36,8 +37,9 @@ export function StatusBar({
   const { t } = useTranslation();
   if (!progress) return null;
 
+  const flags = statusBarFlags(progress);
   const terminal = progress.done + progress.errors + progress.unknown + progress.cancelled;
-  const percent = progress.total > 0 ? Math.round((terminal / progress.total) * 100) : 0;
+  const percent = flags.percent;
   const preparing = running && progress.total === 0;
   const finished = !running && terminal > 0;
 
@@ -64,6 +66,7 @@ export function StatusBar({
             })}
           {progress.errors > 0 && <span className="st-status-err"> {t('statusBar.errors', { count: progress.errors })}</span>}
           {progress.unknown > 0 && <span className="st-status-unknown"> {t('statusBar.unknown', { count: progress.unknown })}</span>}
+          {flags.showBatchAnomaly && <span className="st-status-unknown"> {t('statusBar.batchAnomaly', { count: flags.anomalyCount })}</span>}
           {progress.cancelled > 0 && <span className="st-status-muted"> {t('statusBar.cancelledCount', { count: progress.cancelled })}</span>}
         </span>
       </div>

@@ -36,6 +36,8 @@ export interface TranslateProgress {
   errors: number;
   unknown: number;
   cancelled: number;
+  /** Requests that ended abnormally after every one of their items was received. Not an item count. */
+  abnormalBatches: number;
 }
 
 type ProgressCallback = (progress: TranslateProgress) => void;
@@ -54,8 +56,9 @@ export class PageTranslateEngine {
   private isPaused = false;
   private isCancelled = false;
   private progress: TranslateProgress = {
-    total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0,
+    total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0, abnormalBatches: 0,
   };
+  private batchOutcomes = new Map<string, TranslationBatchResult['status']>();
   private generation = 0;
   private streamClosed = false;
   private displayMode: DisplayMode = 'bilingual';
@@ -104,6 +107,7 @@ export class PageTranslateEngine {
       errors: 0,
       unknown: 0,
       cancelled: 0,
+      abnormalBatches: 0,
     };
     onProgress({ ...this.progress });
 
@@ -322,6 +326,7 @@ export class PageTranslateEngine {
   }
 
   private applyBatchResult(result: TranslationBatchResult, mode: DisplayMode): void {
+    this.batchOutcomes.set(result.batchId, result.status);
     for (const item of result.items) {
       if (item.status === 'completed' && item.translated !== undefined) {
         if (!this.streamClosed && !this.translatedChunks.has(item.id)) {
@@ -517,7 +522,19 @@ export class PageTranslateEngine {
       errors,
       unknown,
       cancelled,
+      abnormalBatches: this.abnormalBatchCount(),
     };
+  }
+
+  private abnormalBatchCount(): number {
+    let count = 0;
+    for (const [batchId, status] of this.batchOutcomes) {
+      if (status === 'completed') continue;
+      const batch = this.batches.find((entry) => entry.batchId === batchId);
+      if (!batch || batch.items.length === 0) continue;
+      if (batch.items.every((item) => this.translatedChunks.has(item.id))) count += 1;
+    }
+    return count;
   }
 
   private async control(action: 'pause' | 'resume' | 'cancel' | 'restore'): Promise<void> {
@@ -541,10 +558,13 @@ export class PageTranslateEngine {
     this.itemFailures.clear();
     this.chunksByDomId.clear();
     this.batches = [];
+    this.batchOutcomes.clear();
     this.domRefresh.clear();
     this.reportedWrites.clear();
     this.writeBatchByDom = new Map();
     this.taskId = '';
-    this.progress = { total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0 };
+    this.progress = {
+      total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0, abnormalBatches: 0,
+    };
   }
 }
