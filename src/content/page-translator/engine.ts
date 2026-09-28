@@ -1,4 +1,4 @@
-import { extractTranslationItems, type DomTranslationItem } from './dom-walker';
+import { extractTranslationItems, type DomTranslationItem } from './dom-walker.ts';
 import type {
   BatchItemResult,
   TranslationBatchRequest,
@@ -9,13 +9,13 @@ import {
   buildNetworkItems,
   type BatchDefinition,
   type NetworkItem,
-} from './page-batching';
+} from './page-batching.ts';
 import {
   decideStreamApply,
   PAGE_PORT_NAME,
   STREAM_DOM_FLUSH_MS,
   type StreamItemMessage,
-} from '../../shared/stream-delivery';
+} from '../../shared/stream-delivery.ts';
 
 export type DisplayMode = 'replace' | 'bilingual';
 
@@ -108,15 +108,10 @@ export class PageTranslateEngine {
     };
     onProgress({ ...this.progress });
 
+    const identity = this.currentIdentity();
     const tasks = this.batches.map((batch) => this.submitBatch(batch, options, onProgress));
     await Promise.allSettled(tasks);
-    this.isRunning = false;
-    if (!this.isCancelled) {
-      await browser.runtime.sendMessage({
-        type: 'TASK_CONTROL',
-        payload: { taskId: this.taskId, sessionId: this.sessionId, action: 'complete' },
-      }).catch(() => undefined);
-    }
+    await this.finishTask(identity);
   }
 
   async pause(): Promise<void> {
@@ -185,6 +180,7 @@ export class PageTranslateEngine {
       .filter((batch) => batch.items.length > 0);
     this.isCancelled = false;
     this.isRunning = true;
+    const identity = this.currentIdentity();
     await Promise.allSettled(
       retryBatches.map((batch) => this.submitBatch(
         batch,
@@ -194,11 +190,7 @@ export class PageTranslateEngine {
         status === 'failed',
       )),
     );
-    this.isRunning = false;
-    await browser.runtime.sendMessage({
-      type: 'TASK_CONTROL',
-      payload: { taskId: this.taskId, sessionId: this.sessionId, action: 'complete' },
-    }).catch(() => undefined);
+    await this.finishTask(identity);
   }
 
   switchMode(mode: DisplayMode): void {
@@ -229,25 +221,56 @@ export class PageTranslateEngine {
       manualRetryFailed,
       generation: this.generation,
     };
+    const identity = {
+      taskId: request.taskId,
+      sessionId: request.sessionId,
+      generation: request.generation ?? this.generation,
+    };
     try {
       const response = await browser.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: request });
+      if (!this.isCurrent(identity)) return;
       if (!response?.success) {
         this.recordBatchFailure(batch, 'interrupted/unknown', response?.error ?? 'BACKGROUND_UNAVAILABLE');
       } else {
         this.applyBatchResult(response.data as TranslationBatchResult, options.displayMode);
       }
     } catch {
-      const recovered = await this.recoverBatch(request);
+      const recovered = await this.recoverBatch(request, identity);
+      if (!this.isCurrent(identity)) return;
       if (recovered) this.applyBatchResult(recovered, options.displayMode);
       else this.recordBatchFailure(batch, 'interrupted/unknown', 'BACKGROUND_INTERRUPTED');
     } finally {
+      if (!this.isCurrent(identity)) return;
       this.flushDom(this.displayMode);
       this.recountProgress();
       onProgress({ ...this.progress });
     }
   }
 
-  private async recoverBatch(request: TranslationBatchRequest): Promise<TranslationBatchResult | null> {
+  private currentIdentity(): { taskId: string; sessionId: string; generation: number } {
+    return { taskId: this.taskId, sessionId: this.sessionId, generation: this.generation };
+  }
+
+  private isCurrent(identity: { taskId: string; sessionId: string; generation: number }): boolean {
+    return identity.taskId.length > 0
+      && identity.taskId === this.taskId
+      && identity.sessionId === this.sessionId
+      && identity.generation === this.generation;
+  }
+
+  private async finishTask(identity: { taskId: string; sessionId: string; generation: number }): Promise<void> {
+    if (!this.isCurrent(identity)) return;
+    this.isRunning = false;
+    await browser.runtime.sendMessage({
+      type: 'TASK_CONTROL',
+      payload: { taskId: identity.taskId, sessionId: identity.sessionId, action: 'complete' },
+    }).catch(() => undefined);
+  }
+
+  private async recoverBatch(
+    request: TranslationBatchRequest,
+    identity: { taskId: string; sessionId: string; generation: number },
+  ): Promise<TranslationBatchResult | null> {
     try {
       const recovery = await browser.runtime.sendMessage({
         type: 'GET_TASK_RECOVERY',
@@ -263,7 +286,9 @@ export class PageTranslateEngine {
       if (!batch) return null;
 
       if (batch.status === 'queued' || batch.status === 'completed') {
+        if (!this.isCurrent(identity)) return null;
         const resumed = await browser.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: request });
+        if (!this.isCurrent(identity)) return null;
         return resumed?.success ? resumed.data as TranslationBatchResult : null;
       }
 
@@ -450,9 +475,12 @@ export class PageTranslateEngine {
   }
 
   private async control(action: 'pause' | 'resume' | 'cancel' | 'restore'): Promise<void> {
+    const taskId = this.taskId;
+    const sessionId = this.sessionId;
+    if (!taskId) return;
     await browser.runtime.sendMessage({
       type: 'TASK_CONTROL',
-      payload: { taskId: this.taskId, sessionId: this.sessionId, action },
+      payload: { taskId, sessionId, action },
     }).catch(() => undefined);
   }
 
