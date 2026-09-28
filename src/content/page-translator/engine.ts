@@ -296,7 +296,7 @@ export class PageTranslateEngine {
       if (item.status === 'completed' && item.translated !== undefined) {
         if (!this.streamClosed && !this.translatedChunks.has(item.id)) {
           this.translatedChunks.set(item.id, item.translated);
-          this.queueDomItem(item.id, result.batchId, result.requestId);
+          this.queueDomItem(item.id, result.batchId, result.requestId, result.attempts);
         }
         if (this.translatedChunks.has(item.id)) this.itemFailures.delete(item.id);
       } else if (!this.translatedChunks.has(item.id)) {
@@ -381,24 +381,24 @@ export class PageTranslateEngine {
     if (decision !== 'apply') return;
     this.translatedChunks.set(value.item.id, value.item.text);
     this.itemFailures.delete(value.item.id);
-    this.queueDomItem(value.item.id, value.batchId, value.requestId);
+    this.queueDomItem(value.item.id, value.batchId, value.requestId, value.attempt);
     this.recountProgress();
     this.progressListener?.({ ...this.progress });
   }
 
-  private queueDomItem(itemId: string, batchId: string, requestId: string): void {
+  private queueDomItem(itemId: string, batchId: string, requestId: string, attempt: number | undefined): void {
     const network = this.batches.flatMap((batch) => batch.items).find((entry) => entry.id === itemId);
     if (!network) return;
     this.domRefresh.add(network.domItemId);
     if (!this.writeBatchByDom) this.writeBatchByDom = new Map();
-    if (!this.writeBatchByDom.has(network.domItemId)) {
-      this.writeBatchByDom.set(network.domItemId, { batchId, requestId });
+    if (!this.writeBatchByDom.has(network.domItemId) && Number.isInteger(attempt) && (attempt as number) >= 0) {
+      this.writeBatchByDom.set(network.domItemId, { batchId, requestId, attempt: attempt as number });
     }
     if (this.flushTimer != null) return;
     this.flushTimer = setTimeout(() => this.flushDom(this.displayMode), STREAM_DOM_FLUSH_MS);
   }
 
-  private writeBatchByDom: Map<string, { batchId: string; requestId: string }> | null = null;
+  private writeBatchByDom: Map<string, { batchId: string; requestId: string; attempt: number }> | null = null;
 
   private flushDom(mode: DisplayMode): void {
     if (this.flushTimer) {
@@ -417,6 +417,7 @@ export class PageTranslateEngine {
           generation: this.generation,
           batchId: meta.batchId,
           requestId: meta.requestId,
+          attempt: meta.attempt,
         });
       }
     }

@@ -459,14 +459,14 @@ export function App() {
                         <td className="pr-2 py-1">{entry.attempt}</td>
                         <td className="pr-2 py-1">{entry.itemCount}</td>
                         <td className="pr-2 py-1">{entry.sourceChars}</td>
-                        <td className="pr-2 py-1">{entry.queuedMs}</td>
+                        <td className="pr-2 py-1">{entry.queuedMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.headerMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.bodyMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.parseMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.firstTextDeltaMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.firstItemMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.firstPageWriteMs ?? '—'}</td>
-                        <td className="pr-2 py-1">{entry.totalMs}</td>
+                        <td className="pr-2 py-1">{entry.totalMs ?? '—'}</td>
                         <td className="py-1">{entry.status}</td>
                       </tr>
                     ))}

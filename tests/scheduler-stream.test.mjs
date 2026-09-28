@@ -285,6 +285,75 @@ test('stream failure does not call the blocking translator or retry automaticall
   assert.notEqual(result.status, 'completed');
 });
 
+test('a non-streaming page-write acknowledgement can arrive after the diagnostic row', async () => {
+  installBrowser();
+  const {
+    listenForPagePort,
+    resetPagePortsForTests,
+  } = await import('../src/shared/stream-delivery.ts');
+  const {
+    listBatchDiagnostics,
+    resetBatchDiagnosticsForTests,
+    setBatchDiagnosticsEnabled,
+  } = await import('../src/background/batch-diagnostics.ts');
+  resetPagePortsForTests();
+  resetBatchDiagnosticsForTests();
+  setBatchDiagnosticsEnabled(true);
+  const listeners = [];
+  const port = {
+    sender: { id: 'ext', tab: { id: 4 }, frameId: 0 },
+    onMessage: { addListener(fn) { listeners.push(fn); } },
+    onDisconnect: { addListener() {} },
+    postMessage() {},
+    disconnect() {},
+  };
+  listenForPagePort(port, Promise.resolve('ext'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (const listener of listeners) {
+    listener({ type: 'bind', taskId: 'task-stream', sessionId: 'session-stream', generation: 1 });
+  }
+  const relay = {
+    async translateItems(items) {
+      return new Map(items.map((item) => [item.id, '你好']));
+    },
+    async *streamItems() { throw new Error('STREAM_NOT_USED'); },
+  };
+  const scheduler = new (await import('../src/background/scheduler.ts')).TranslationScheduler();
+  const result = await scheduler.submit(request('batch-ack'), 4, 0, relay, { ...config(1), streamTranslations: false });
+  const before = listBatchDiagnostics().find((entry) => entry.requestId === 'request-batch-ack');
+  assert.equal(before.firstPageWriteMs, null);
+  assert.equal(before.firstTextDeltaMs, null);
+  assert.equal(before.parseMs == null || before.parseMs >= 0, true);
+  for (const listener of listeners) {
+    listener({
+      type: 'page-write',
+      taskId: 'task-stream',
+      sessionId: 'session-stream',
+      generation: 1,
+      batchId: 'batch-ack',
+      requestId: 'request-batch-ack',
+      attempt: result.attempts,
+    });
+  }
+  const after = listBatchDiagnostics().find((entry) => entry.requestId === 'request-batch-ack' && entry.attempt === result.attempts);
+  assert.equal(typeof after.firstPageWriteMs, 'number');
+  for (const listener of listeners) {
+    listener({
+      type: 'page-write',
+      taskId: 'task-stream',
+      sessionId: 'session-stream',
+      generation: 1,
+      batchId: 'batch-ack',
+      requestId: 'request-batch-ack',
+      attempt: result.attempts + 1,
+    });
+  }
+  assert.equal(
+    listBatchDiagnostics().find((entry) => entry.attempt === result.attempts).firstPageWriteMs,
+    after.firstPageWriteMs,
+  );
+});
+
 test('cancel keeps the item already delivered and drops a later item', async () => {
   installBrowser();
   const { TranslationScheduler } = await import('../src/background/scheduler.ts');

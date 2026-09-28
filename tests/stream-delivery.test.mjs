@@ -57,6 +57,7 @@ function itemMessage(overrides = {}) {
     ...binding,
     batchId: 'batch-0001',
     requestId: 'request-1',
+    attempt: 1,
     item: { id: 'seg-a', text: '你好' },
     ...overrides,
   };
@@ -98,6 +99,7 @@ test('port listeners queue until initialization, then reject the wrong sender an
     generation: 2,
     batchId: 'batch-0001',
     requestId: 'request-1',
+    attempt: 1,
     text: 'should not be stored',
     authorization: 'Bearer secret',
   });
@@ -112,6 +114,7 @@ test('port listeners queue until initialization, then reject the wrong sender an
     generation: 2,
     batchId: 'batch-0001',
     requestId: 'request-1',
+    attempt: 1,
   }]);
   assert.equal(JSON.stringify(listPageWrites()).includes('should not be stored'), false);
   assert.equal(publishStreamItem(itemMessage()), true);

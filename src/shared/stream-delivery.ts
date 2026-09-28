@@ -13,6 +13,7 @@ export interface StreamItemMessage extends StreamBinding {
   type: 'stream-item';
   batchId: string;
   requestId: string;
+  attempt: number;
   item: { id: string; text: string };
 }
 
@@ -23,6 +24,7 @@ export interface PageWriteMessage {
   generation: number;
   batchId: string;
   requestId: string;
+  attempt: number;
 }
 
 export interface StreamApplyState {
@@ -202,6 +204,7 @@ export function listenForPagePort(port: PortLike, extensionReady: Promise<string
 export function publishStreamItem(message: StreamItemMessage): boolean {
   const entry = ports.get(portKey(message.tabId, message.frameId));
   if (!entry?.binding || !sameStreamBinding(entry.binding, message)) return false;
+  if (!Number.isInteger(message.attempt) || message.attempt < 0) return false;
   if (typeof message.item?.id !== 'string' || typeof message.item.text !== 'string' || !message.item.text.trim()) {
     return false;
   }
@@ -212,6 +215,7 @@ export function publishStreamItem(message: StreamItemMessage): boolean {
     generation: message.generation,
     batchId: message.batchId,
     requestId: message.requestId,
+    attempt: message.attempt,
     item: { id: message.item.id, text: message.item.text },
   });
   return true;
@@ -226,8 +230,10 @@ export function parsePageWrite(message: unknown, bound: StreamBinding): PageWrit
   const batchId = boundedId(value.batchId);
   const requestId = boundedId(value.requestId);
   const generation = value.generation;
+  const attempt = value.attempt;
   if (!taskId || !sessionId || !batchId || !requestId) return null;
   if (!Number.isInteger(generation) || generation !== bound.generation) return null;
+  if (!Number.isInteger(attempt) || (attempt as number) < 0) return null;
   if (taskId !== bound.taskId || sessionId !== bound.sessionId) return null;
   return {
     type: 'page-write',
@@ -236,5 +242,6 @@ export function parsePageWrite(message: unknown, bound: StreamBinding): PageWrit
     generation: generation as number,
     batchId,
     requestId,
+    attempt: attempt as number,
   };
 }

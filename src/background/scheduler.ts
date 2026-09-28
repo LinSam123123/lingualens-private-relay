@@ -28,6 +28,7 @@ import { publishStreamItem } from './page-port.ts';
 import { setPageWriteListener } from '../shared/stream-delivery.ts';
 import type { StreamTerminalKind } from '../shared/relay-stream';
 import {
+  confirmPageWrite,
   recordBatchDiagnostic,
   recordTaskTiming,
   sanitizeDiagnosticStatus,
@@ -89,7 +90,7 @@ export class TranslationScheduler {
   private maxConcurrency = 2;
   private checkpointIds = new Map<string, Set<string>>();
   private checkpointTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private writeOffsets = new Map<string, { dispatchAt: number; writeAt: number | null }>();
+  private writeSlots = new Map<string, { dispatchAt: number; taskId: string }>();
   private writesBound = false;
   private taskStarted = new Map<string, number>();
   private taskFirstWrite = new Map<string, number>();
@@ -234,7 +235,7 @@ export class TranslationScheduler {
       }, config.timeoutMs ?? 25_000);
       const dispatchStart = Date.now();
       this.bindPageWrites();
-      this.writeOffsets.set(request.requestId, { dispatchAt: dispatchStart, writeAt: null });
+      this.writeSlots.set(`${request.requestId}:${attempt}`, { dispatchAt: dispatchStart, taskId: request.taskId });
       const timing: RelayFetchTiming = {
         headerMs: null,
         bodyMs: null,
@@ -245,7 +246,7 @@ export class TranslationScheduler {
 
       try {
         if (config.streamTranslations === true) {
-          const streamed = await this.readStream(pending, runtime, controller, timing, dispatchStart);
+          const streamed = await this.readStream(pending, runtime, controller, timing, dispatchStart, attempt);
           if (streamed.rethrow && streamed.accepted.size === 0) throw streamed.rethrow;
           const outcome = classifyStreamItems({
             expectedIds: request.items.map((item) => item.id),
@@ -337,19 +338,19 @@ export class TranslationScheduler {
     if (this.writesBound) return;
     this.writesBound = true;
     setPageWriteListener((write, receivedAt) => {
-      const slot = this.writeOffsets.get(write.requestId);
-      if (slot && slot.writeAt == null) slot.writeAt = receivedAt;
+      if (!Number.isInteger(write.attempt) || write.attempt < 0) return;
+      const slot = this.writeSlots.get(`${write.requestId}:${write.attempt}`);
+      if (!slot || slot.taskId !== write.taskId) return;
+      confirmPageWrite({
+        taskId: write.taskId,
+        requestId: write.requestId,
+        attempt: write.attempt,
+      }, Math.max(0, receivedAt - slot.dispatchAt));
       if (!this.taskFirstWrite.has(write.taskId)) {
         const started = this.taskStarted.get(write.taskId);
-        if (started) this.taskFirstWrite.set(write.taskId, Math.max(0, receivedAt - started));
+        if (started != null) this.taskFirstWrite.set(write.taskId, Math.max(0, receivedAt - started));
       }
     });
-  }
-
-  private pageWriteOffset(requestId: string): number | null {
-    const slot = this.writeOffsets.get(requestId);
-    if (!slot?.writeAt) return null;
-    return Math.max(0, slot.writeAt - slot.dispatchAt);
   }
 
   private queueCheckpoint(taskId: string, batchId: string, id: string): void {
@@ -385,6 +386,7 @@ export class TranslationScheduler {
     controller: AbortController,
     timing: RelayFetchTiming,
     dispatchStart: number,
+    attempt: number,
   ): Promise<{
     accepted: Map<string, string>;
     rejected: Array<{ id: string; reason: string }>;
@@ -419,6 +421,7 @@ export class TranslationScheduler {
             generation: request.generation ?? 0,
             batchId: request.batchId,
             requestId: request.requestId,
+            attempt,
             item: { id: event.item.id, text: event.item.text },
           });
           this.queueCheckpoint(request.taskId, request.batchId, event.item.id);
@@ -445,6 +448,7 @@ export class TranslationScheduler {
     },
   ): void {
     recordBatchDiagnostic({
+      taskId: request.taskId,
       requestId: request.requestId,
       attempt: details.attempt,
       itemCount: request.items.length,
@@ -455,7 +459,7 @@ export class TranslationScheduler {
       parseMs: details.timing?.parseMs ?? null,
       firstTextDeltaMs: details.timing?.firstTextDeltaMs ?? null,
       firstItemMs: details.timing?.firstItemMs ?? null,
-      firstPageWriteMs: this.pageWriteOffset(request.requestId),
+      firstPageWriteMs: null,
       totalMs: details.totalMs,
       status: sanitizeDiagnosticStatus(details.status),
     });

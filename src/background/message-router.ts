@@ -28,6 +28,7 @@ import {
 import { RelayAdapter } from '../providers/relay';
 import { TranslationScheduler } from './scheduler';
 import { getTaskJournal } from './task-journal';
+import { cacheOnlyDiagnostic, recordBatchDiagnostic } from './batch-diagnostics';
 import {
   batchDiagnosticsSnapshot,
   clearBatchDiagnostics,
@@ -276,6 +277,14 @@ async function handleTranslationBatch(
   const missing = cached.filter((entry) => !entry.result).map((entry) => entry.item);
 
   let scheduled: TranslationBatchResult | null = null;
+  if (missing.length === 0) {
+    recordBatchDiagnostic(cacheOnlyDiagnostic({
+      taskId: request.taskId,
+      requestId: request.requestId,
+      itemCount: request.items.length,
+      sourceChars: request.items.reduce((sum, item) => sum + item.text.length, 0),
+    }));
+  }
   if (missing.length > 0) {
     scheduled = await translationScheduler.submit(
       { ...request, items: missing },
