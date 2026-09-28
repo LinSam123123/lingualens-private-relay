@@ -132,7 +132,45 @@ function translatedItems(body) {
 }
 
 function success(response, protocol, body) {
-  const content = JSON.stringify({ items: translatedItems(body) });
+  const items = translatedItems(body);
+  if (body?.stream === true) {
+    response.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache' });
+    const writeLine = (line) => {
+      if (protocol === 'responses') {
+        response.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', delta: line })}\n\n`);
+      } else {
+        response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: line }, finish_reason: null }] })}\n\n`);
+      }
+    };
+    const finish = () => {
+      if (protocol === 'responses') {
+        response.write(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`);
+      } else {
+        response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
+        response.write('data: [DONE]\n\n');
+      }
+      response.end();
+    };
+    if (items.length < 2) {
+      for (const item of items) writeLine(`${JSON.stringify(item)}\n`);
+      finish();
+      return;
+    }
+    let index = 0;
+    const step = () => {
+      if (index < items.length) {
+        writeLine(`${JSON.stringify(items[index])}\n`);
+        index += 1;
+        const timer = setTimeout(step, 200);
+        timer.unref();
+        return;
+      }
+      finish();
+    };
+    step();
+    return;
+  }
+  const content = JSON.stringify({ items });
   if (protocol === 'responses') json(response, 200, { output_text: content });
   else json(response, 200, { choices: [{ message: { content } }] });
 }
@@ -261,6 +299,17 @@ server.listen(port, '127.0.0.1', async () => {
       method: 'POST', headers, body: JSON.stringify({ input }),
     })).json();
     assert.match(responses.output_text, /item-1/);
+
+    const streamed = await fetch(`${base}/ok/v1/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: input }] }),
+    });
+    assert.equal(streamed.headers.get('content-type').includes('text/event-stream'), true);
+    const streamedText = await streamed.text();
+    assert.match(streamedText, /finish_reason":"stop"/);
+    assert.match(streamedText, /\[DONE\]/);
+    assert.equal(streamedText.includes('Bearer'), false);
 
     const slow = await (await fetch(`${base}/slow/v1/responses`, {
       method: 'POST', headers, body: JSON.stringify({ input }),
