@@ -228,7 +228,7 @@ export function ContentApp({ onReady }: Props) {
     setPagePaused(false);
     setMode('hidden');
     const initial: TranslateProgress = {
-      total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0,
+      total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0, abnormalBatches: 0,
     };
     pageProgressRef.current = initial;
     setPageProgress(initial);
