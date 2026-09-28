@@ -66,7 +66,8 @@ export class PageTranslateEngine {
   private streamPort: Browser.runtime.Port | null = null;
   private domRefresh = new Set<string>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private reportedWrites = new Set<string>();
+  private pendingDomAck = new Map<string, { batchId: string; requestId: string; attempt: number }>();
+  private reportedWriteKeys = new Set<string>();
 
   get running(): boolean {
     return this.isRunning;
@@ -466,15 +467,13 @@ export class PageTranslateEngine {
     const network = this.batches.flatMap((batch) => batch.items).find((entry) => entry.id === itemId);
     if (!network) return;
     this.domRefresh.add(network.domItemId);
-    if (!this.writeBatchByDom) this.writeBatchByDom = new Map();
-    if (!this.writeBatchByDom.has(network.domItemId) && Number.isInteger(attempt) && (attempt as number) >= 0) {
-      this.writeBatchByDom.set(network.domItemId, { batchId, requestId, attempt: attempt as number });
+    if (Number.isInteger(attempt) && (attempt as number) >= 0) {
+      // The chunk that makes the node ready owns the acknowledgement, not an earlier attempt.
+      this.pendingDomAck.set(network.domItemId, { batchId, requestId, attempt: attempt as number });
     }
     if (this.flushTimer != null) return;
     this.flushTimer = setTimeout(() => this.flushDom(this.displayMode), STREAM_DOM_FLUSH_MS);
   }
-
-  private writeBatchByDom: Map<string, { batchId: string; requestId: string; attempt: number }> | null = null;
 
   private flushDom(mode: DisplayMode): void {
     if (this.flushTimer) {
@@ -482,20 +481,22 @@ export class PageTranslateEngine {
       this.flushTimer = null;
     }
     for (const domItemId of this.domRefresh) {
+      const meta = this.pendingDomAck.get(domItemId);
       const wrote = this.applyDomItemIfReady(domItemId, mode);
-      const meta = this.writeBatchByDom?.get(domItemId);
-      if (wrote && meta && !this.reportedWrites.has(meta.batchId)) {
-        this.reportedWrites.add(meta.batchId);
-        this.streamPort?.postMessage({
-          type: 'page-write',
-          taskId: this.taskId,
-          sessionId: this.sessionId,
-          generation: this.generation,
-          batchId: meta.batchId,
-          requestId: meta.requestId,
-          attempt: meta.attempt,
-        });
-      }
+      this.pendingDomAck.delete(domItemId);
+      if (!wrote || !meta) continue;
+      const key = `${this.taskId}:${meta.requestId}:${meta.attempt}`;
+      if (this.reportedWriteKeys.has(key)) continue;
+      this.reportedWriteKeys.add(key);
+      this.streamPort?.postMessage({
+        type: 'page-write',
+        taskId: this.taskId,
+        sessionId: this.sessionId,
+        generation: this.generation,
+        batchId: meta.batchId,
+        requestId: meta.requestId,
+        attempt: meta.attempt,
+      });
     }
     this.domRefresh.clear();
   }
@@ -560,8 +561,8 @@ export class PageTranslateEngine {
     this.batches = [];
     this.batchOutcomes.clear();
     this.domRefresh.clear();
-    this.reportedWrites.clear();
-    this.writeBatchByDom = new Map();
+    this.pendingDomAck.clear();
+    this.reportedWriteKeys.clear();
     this.taskId = '';
     this.progress = {
       total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0, abnormalBatches: 0,
