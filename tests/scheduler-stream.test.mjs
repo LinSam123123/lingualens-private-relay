@@ -113,6 +113,47 @@ test('stream outcomes keep partial successes and do not claim idempotent retries
   const retry = manualRetryDoesNotClaimIdempotency('request-batch-0001', ['seg-b']);
   assert.equal(retry.idempotent, false);
   assert.deepEqual(retry.itemIds, ['seg-b']);
+
+  const accepted = ['seg-a', 'seg-b'];
+  const full = {
+    expectedIds: accepted,
+    acceptedIds: accepted,
+    rejected: [],
+  };
+  const timedOut = classifyStreamItems({ ...full, terminal: null, cancelled: false, timedOut: true });
+  assert.equal(timedOut.status, 'interrupted/unknown');
+  assert.equal(timedOut.code, 'REQUEST_TIMEOUT_UNKNOWN');
+  assert.deepEqual(timedOut.items.map((item) => item.status), ['completed', 'completed']);
+
+  const eof = classifyStreamItems({ ...full, terminal: null, cancelled: false, timedOut: false });
+  assert.equal(eof.status, 'interrupted/unknown');
+  assert.notEqual(eof.status, 'completed');
+  assert.deepEqual(eof.items.map((item) => item.status), ['completed', 'completed']);
+
+  const cancelledFull = classifyStreamItems({ ...full, terminal: null, cancelled: true, timedOut: false });
+  assert.equal(cancelledFull.status, 'cancelled');
+  assert.deepEqual(cancelledFull.items.map((item) => item.status), ['completed', 'completed']);
+
+  const provider = classifyStreamItems({ ...full, terminal: 'provider-error', cancelled: false, timedOut: false });
+  assert.equal(provider.status, 'failed');
+  assert.equal(provider.code, 'STREAM_PROVIDER_ERROR');
+  assert.deepEqual(provider.items.map((item) => item.status), ['completed', 'completed']);
+
+  const clean = classifyStreamItems({ ...full, terminal: 'completed', cancelled: false, timedOut: false });
+  assert.equal(clean.status, 'completed');
+  assert.deepEqual(clean.items.map((item) => item.status), ['completed', 'completed']);
+
+  const missing = classifyStreamItems({
+    expectedIds: accepted,
+    acceptedIds: ['seg-a'],
+    rejected: [],
+    terminal: 'completed',
+    cancelled: false,
+    timedOut: false,
+  });
+  assert.equal(missing.status, 'failed');
+  assert.equal(missing.items.find((item) => item.id === 'seg-b').error, 'RESPONSE_MISSING_ITEM');
+  assert.equal(missing.items.find((item) => item.id === 'seg-a').status, 'completed');
 });
 
 test('a stream keeps its concurrency slot until it finishes and never falls back', async () => {

@@ -156,16 +156,40 @@ export function classifyStreamItems(input: {
     if (input.terminal === 'provider-error') return { id, status: 'failed', error: 'STREAM_PROVIDER_ERROR' };
     return { id, status: 'failed', error: 'RESPONSE_MISSING_ITEM' };
   });
-  const status = items.every((item) => item.status === 'completed')
-    ? 'completed'
-    : items.some((item) => item.status === 'interrupted/unknown')
-      ? 'interrupted/unknown'
-      : items.some((item) => item.status === 'cancelled')
-        ? 'cancelled'
-        : 'failed';
-  const code = status === 'completed'
-    ? 'completed'
-    : items.find((item) => item.status !== 'completed')?.error ?? status;
+  const unfinished = items.find((item) => item.status !== 'completed');
+  const cleanTerminal = input.terminal === 'completed' && !input.cancelled && !input.timedOut;
+  let status: 'completed' | 'failed' | 'interrupted/unknown' | 'cancelled';
+  let code: string;
+  if (input.cancelled) {
+    status = 'cancelled';
+    code = 'CANCELLED';
+  } else if (input.timedOut) {
+    status = 'interrupted/unknown';
+    code = 'REQUEST_TIMEOUT_UNKNOWN';
+  } else if (input.terminal === 'truncated') {
+    status = 'failed';
+    code = unfinished?.error ?? 'RESPONSE_TRUNCATED';
+  } else if (input.terminal === 'provider-error') {
+    status = 'failed';
+    code = unfinished?.error ?? 'STREAM_PROVIDER_ERROR';
+  } else if (!cleanTerminal) {
+    status = 'interrupted/unknown';
+    code = unfinished?.status === 'interrupted/unknown'
+      ? (unfinished.error ?? 'STREAM_INTERRUPTED_UNKNOWN')
+      : 'STREAM_INTERRUPTED_UNKNOWN';
+  } else if (!unfinished) {
+    status = 'completed';
+    code = 'completed';
+  } else if (unfinished.status === 'interrupted/unknown') {
+    status = 'interrupted/unknown';
+    code = unfinished.error ?? 'STREAM_INTERRUPTED_UNKNOWN';
+  } else if (unfinished.status === 'cancelled') {
+    status = 'cancelled';
+    code = unfinished.error ?? 'CANCELLED';
+  } else {
+    status = 'failed';
+    code = unfinished.error ?? 'RESPONSE_MISSING_ITEM';
+  }
   return { status, code, items };
 }
 
