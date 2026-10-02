@@ -70,7 +70,7 @@ function mount() {
       return { nextNode: () => pending.shift() ?? null };
     },
   };
-  return { add, emit, nodes, body, mutations, intersections, visibility(hidden) {
+  return { add, emit, nodes, body, mutations, intersections, element, visibility(hidden) {
     document.hidden = hidden; listeners.get('visibilitychange')?.();
   } };
 }
@@ -242,6 +242,90 @@ test('a website edit during dispatch rejects the old response and restore does n
   assert.equal(node.textContent, 'Website changed during dispatch');
   await engine.restore();
   assert.equal(node.textContent, 'Website changed during dispatch');
+});
+
+test('a drawer hidden during dispatch retains results and writes on reveal without another fetch', async () => {
+  const dom = mount();
+  const node = dom.add('Drawer paragraph before hiding');
+  const h = browserHarness();
+  h.setDelay(true);
+  const engine = new PageTranslateEngine();
+  const initial = engine.start(options, () => {});
+  await until(() => h.calls.length === 1);
+  node.parentElement.hidden = true;
+  await initial;
+  assert.equal(node.textContent, 'Drawer paragraph before hiding');
+  node.parentElement.hidden = false;
+  dom.emit({ type: 'attributes', target: node.parentElement, attributeName: 'hidden' });
+  await until(() => node.textContent === '[translated] Drawer paragraph before hiding');
+  assert.equal(h.calls.length, 1);
+  await engine.restore();
+  assert.equal(node.textContent, 'Drawer paragraph before hiding');
+});
+
+test('closed native details skip body text and translate it after open, not on every toggle', async () => {
+  const dom = mount();
+  const details = dom.element('DETAILS');
+  let open = false;
+  details.hasAttribute = (name) => name === 'open' && open;
+  details.parentElement = dom.body; details.parentNode = dom.body;
+  const summary = dom.element('SUMMARY');
+  const summaryText = { nodeType: 3, textContent: 'Expandable article summary',
+    parentElement: summary, parentNode: summary, isConnected: true };
+  summary.parentElement = details; summary.parentNode = details; summary.childNodes.push(summaryText);
+  summary.contains = (node) => node === summaryText;
+  const paragraph = dom.element('P');
+  paragraph.parentElement = details; paragraph.parentNode = details;
+  const node = { nodeType: 3, textContent: 'Article hidden inside native details',
+    parentElement: paragraph, parentNode: paragraph, isConnected: true };
+  paragraph.childNodes.push(node);
+  details.childNodes.push(summary, paragraph);
+  details.children = [summary, paragraph];
+  dom.body.childNodes.push(details);
+  const h = browserHarness();
+  const engine = new PageTranslateEngine();
+  await engine.start(options, () => {});
+  assert.equal(node.textContent, 'Article hidden inside native details');
+  assert.equal(summaryText.textContent, '[translated] Expandable article summary');
+  open = true;
+  dom.emit({ type: 'attributes', target: details, attributeName: 'open' });
+  await until(() => node.textContent.startsWith('[translated]'));
+  const count = h.calls.length;
+  open = false;
+  dom.emit({ type: 'attributes', target: details, attributeName: 'open' });
+  open = true;
+  dom.emit({ type: 'attributes', target: details, attributeName: 'open' });
+  await new Promise((resolve) => setTimeout(resolve, 650));
+  assert.equal(h.calls.length, count);
+  await engine.restore();
+  assert.equal(node.textContent, 'Article hidden inside native details');
+});
+
+test('visible prose inside a dropdown drawer is not mistaken for menu controls', async () => {
+  const dom = mount();
+  const node = dom.add('Visible prose in an expandable drawer');
+  node.parentElement.className = 'dropdown-content';
+  const menu = dom.add('Menu control should stay original');
+  menu.parentElement.getAttribute = (name) => name === 'role' ? 'menu' : null;
+  const h = browserHarness();
+  const engine = new PageTranslateEngine();
+  await engine.start(options, () => {});
+  assert.equal(node.textContent, '[translated] Visible prose in an expandable drawer');
+  assert.equal(menu.textContent, 'Menu control should stay original');
+  await engine.restore();
+});
+
+test('automatic continuation selects nearby text before applying the document character cap', async () => {
+  const dom = mount();
+  const far = dom.add('Far offscreen text '.repeat(10), 5000);
+  const nearby = dom.add('Nearby article');
+  const h = browserHarness();
+  const engine = new PageTranslateEngine();
+  await engine.start({ ...options, maxPageChars: 50, visibleOnly: true }, () => {});
+  assert.equal(nearby.textContent, '[translated] Nearby article');
+  assert.equal(far.textContent, 'Far offscreen text '.repeat(10));
+  assert.equal(h.calls.length, 1);
+  await engine.restore();
 });
 
 test('a lost charged journal cannot silently recreate a fresh incremental budget', async () => {

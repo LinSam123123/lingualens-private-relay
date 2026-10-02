@@ -110,10 +110,11 @@ export class PageTranslateEngine {
     this.progressListener = onProgress;
     this.taskId = crypto.randomUUID();
     this.sessionOptions = { ...options };
-    this.domItems = extractTranslationItems(document.body, options.maxPageChars)
-      .filter(() => !options.visibleOnly || (!document.hidden && !this.isPaused))
-      .filter((item) => !options.visibleOnly || !item.node.parentElement || nearViewport(item.node.parentElement))
-      .map((item) => this.revisions.claim(item)!).filter(Boolean);
+    this.domItems = !options.visibleOnly || (!document.hidden && !this.isPaused)
+      ? extractTranslationItems(document.body, options.maxPageChars, (node) =>
+        !options.visibleOnly || Boolean(node.parentElement && nearViewport(node.parentElement)))
+        .map((item) => this.revisions.claim(item)!).filter(Boolean)
+      : [];
     this.domById = new Map(this.domItems.map((item) => [item.id, item]));
     if (options.continuous) this.watch();
 
@@ -170,20 +171,25 @@ export class PageTranslateEngine {
   private collectDynamic(root: Element): void {
     const options = this.sessionOptions;
     if (!options || !this.listening || this.budgetExhausted) return;
-    for (const candidate of extractTranslationItems(root, options.maxPageChars)) {
-      const parent = candidate.node.parentElement;
-      if (!parent || !nearViewport(parent)) {
-        if (parent) this.observer?.defer(parent);
+    for (const candidate of extractTranslationItems(root, options.maxPageChars, (node) => {
+      const parent = node.parentElement;
+      if (parent && nearViewport(parent)) return true;
+      if (parent) this.observer?.defer(parent);
+      return false;
+    })) {
+      const item = this.revisions.claim(candidate);
+      if (!item) {
+        const existing = this.revisions.itemFor(candidate.node);
+        if (existing) this.domRefresh.add(existing.id);
         continue;
       }
-      const item = this.revisions.claim(candidate);
-      if (!item) continue;
       // A reused node no longer owns any marker belonging to its previous revision.
       for (const previous of this.domItems.filter((entry) => entry.node === item.node)) {
         for (const marker of this.bilingualMarkers.filter((entry) => entry.dataset.lingualensFor === previous.id)) marker.remove();
       }
       this.pendingDynamic.set(item.id, item);
     }
+    this.flushDom(this.displayMode);
     void this.pumpDynamic();
   }
 
@@ -670,6 +676,9 @@ export class PageTranslateEngine {
     for (const domItemId of this.domRefresh) {
       const meta = this.pendingDomAck.get(domItemId);
       const wrote = this.applyDomItemIfReady(domItemId, mode);
+      const dom = this.domById.get(domItemId);
+      // A temporarily closed drawer retains both its successful result and write ownership.
+      if (!wrote && dom && this.revisions.current(dom) && !isEligibleTranslationNode(dom.node)) continue;
       this.pendingDomAck.delete(domItemId);
       if (!wrote || !meta) continue;
       const key = `${this.taskId}:${meta.requestId}:${meta.attempt}`;
@@ -731,7 +740,7 @@ export class PageTranslateEngine {
   private currentNetworkItem(id: string): boolean {
     const network = this.batches.flatMap((batch) => batch.items).find((item) => item.id === id);
     const dom = network && this.domById.get(network.domItemId);
-    return Boolean(dom && this.revisions.current(dom) && isEligibleTranslationNode(dom.node));
+    return Boolean(dom && this.revisions.current(dom));
   }
 
   private async control(action: 'pause' | 'resume' | 'cancel' | 'restore' | 'suspend'): Promise<void> {

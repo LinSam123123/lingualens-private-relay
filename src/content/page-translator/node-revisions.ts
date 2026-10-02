@@ -26,7 +26,7 @@ export class NodeRevisions {
   }
 
   write(item: DomTranslationItem, value: string): boolean {
-    if (!this.current(item)) return false;
+    if (!this.current(item) || item.node.textContent === value) return false;
     this.records.get(item.node)!.written = value;
     item.node.textContent = value;
     return true;
@@ -38,5 +38,10 @@ export class NodeRevisions {
 
   isOwnText(node: Text): boolean {
     return this.records.get(node)?.written === node.textContent;
+  }
+
+  itemFor(node: Text): DomTranslationItem | null {
+    const item = this.records.get(node)?.item;
+    return item && this.current(item) ? item : null;
   }
 }

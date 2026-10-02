@@ -42,3 +42,51 @@ test('subtree-only mutations debounce, ignore own writes/markers and retain offs
   assert.equal(scans.includes(body), false);
   observer.disconnect();
 });
+
+test('details, controlled drawers and completed reveal animations schedule only affected content', async () => {
+  let mutation, config;
+  const handlers = new Map();
+  const root = { nodeType: 1 };
+  globalThis.window = { innerWidth: 1000, innerHeight: 600 };
+  const element = () => ({
+    nodeType: 1, isConnected: true, closest: () => null,
+    getAttribute: () => null,
+    getBoundingClientRect: () => ({ top: 100, bottom: 130, left: 0, right: 100 }),
+  });
+  const details = element();
+  const drawer = element();
+  const trigger = { ...element(), getAttribute: (name) => name === 'aria-controls' ? 'drawer' : null };
+  globalThis.document = {
+    body: root, documentElement: root,
+    addEventListener(name, callback) { handlers.set(name, callback); },
+    removeEventListener(name) { handlers.delete(name); },
+    getElementById(id) { return id === 'drawer' ? drawer : null; },
+  };
+  globalThis.MutationObserver = class {
+    constructor(fn) { mutation = fn; }
+    observe(target, options) { assert.equal(target, root); config = options; }
+    disconnect() {}
+  };
+  globalThis.IntersectionObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  const scans = [];
+  const observer = new DynamicPageObserver((el) => scans.push(el), () => false, () => true);
+  for (const name of ['open', 'aria-expanded', 'aria-controls', 'data-state']) {
+    assert.ok(config.attributeFilter.includes(name), name);
+  }
+  mutation([{ type: 'attributes', target: details, attributeName: 'open' },
+    { type: 'attributes', target: trigger, attributeName: 'aria-expanded' }]);
+  handlers.get('toggle')?.({ target: details });
+  handlers.get('transitionend')?.({ target: drawer });
+  handlers.get('animationend')?.({ target: drawer });
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.ok(scans.includes(details));
+  assert.ok(scans.includes(drawer));
+  assert.equal(scans.includes(root), false);
+  assert.equal(scans.filter((el) => el === drawer).length, 1);
+  observer.disconnect();
+  assert.equal(handlers.size, 0);
+});

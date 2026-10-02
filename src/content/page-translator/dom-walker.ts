@@ -126,7 +126,7 @@ function isPopupOverlay(el: Element): boolean {
   return false;
 }
 
-const SKIP_CLASS_RE = /\b(dropdown|popover|tooltip|popup|select-menu|menu-list|listbox|menu-item|dropdown-item|tippy|popper)\b/i;
+const SKIP_CLASS_RE = /\b(tooltip|select-menu|menu-list|listbox|menu-item|dropdown-item|tippy)\b/i;
 const SR_ONLY_RE = /\b(sr-only|visually-hidden|visuallyhidden|screen-reader-only|screenreader)\b/i;
 
 function isInsideSkipTag(node: Node, root: Element): boolean {
@@ -136,12 +136,17 @@ function isInsideSkipTag(node: Node, root: Element): boolean {
     const role = current.getAttribute('role');
     if (role && SKIP_ROLES.has(role)) return true;
     if (current.getAttribute('aria-hidden') === 'true') return true;
+    if (current.hasAttribute('inert')) return true;
+    if (current.tagName === 'DETAILS' && !current.hasAttribute('open')) {
+      const summary = Array.from(current.children).find((child) => child.tagName === 'SUMMARY');
+      if (!summary?.contains(node)) return true;
+    }
     const cls = current.className;
     if (typeof cls === 'string') {
       if (SKIP_CLASS_RE.test(cls)) return true;
       if (SR_ONLY_RE.test(cls)) return true;
     }
-    if (current.hasAttribute('data-tippy-root') || current.hasAttribute('data-popper-placement')) return true;
+    if (current.hasAttribute('data-tippy-root')) return true;
     if (current.hasAttribute('data-lingualens-translation')) return true;
     if (!isVisible(current)) return true;
     current = current.parentElement;
@@ -482,6 +487,7 @@ export function isEligibleTranslationNode(node: Node): boolean {
 export function extractTranslationItems(
   root: Element = document.body,
   maxPageChars = 100_000,
+  includeNode: (node: Text) => boolean = () => true,
 ): DomTranslationItem[] {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
@@ -493,6 +499,7 @@ export function extractTranslationItems(
   let chars = 0;
   let node: Text | null;
   while ((node = walker.nextNode() as Text | null)) {
+    if (!includeNode(node)) continue;
     const originalText = node.textContent ?? '';
     const text = originalText.trim();
     if (shouldSkipTranslation(text)) continue;

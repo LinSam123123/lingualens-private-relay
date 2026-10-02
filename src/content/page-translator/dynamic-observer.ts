@@ -44,7 +44,7 @@ export class DynamicPageObserver {
         if (record.type === 'characterData') {
           if (!this.ownText(record.target as Text)) this.schedule(record.target);
         } else if (record.type === 'attributes') {
-          this.schedule(record.target);
+          this.scheduleReveal(record.target);
         } else {
           for (const node of record.addedNodes) {
             if (!isExtensionNode(node)) this.schedule(node);
@@ -52,10 +52,31 @@ export class DynamicPageObserver {
         }
       }
     });
-    this.mutation.observe(document.body, {
+    this.mutation.observe(document.documentElement ?? document.body, {
       childList: true, subtree: true, characterData: true, attributes: true,
-      attributeFilter: ['class', 'style', 'hidden', 'aria-hidden', 'contenteditable'],
+      attributeFilter: ['class', 'style', 'hidden', 'aria-hidden', 'contenteditable',
+        'open', 'aria-expanded', 'aria-controls', 'data-state', 'inert'],
     });
+    for (const type of ['toggle', 'transitionend', 'animationend']) {
+      document.addEventListener?.(type, this.onReveal, true);
+    }
+  }
+
+  private onReveal = (event: Event): void => {
+    const target = event.target as Node | null;
+    if (target && (target.nodeType === 1 || target.nodeType === 3)) this.scheduleReveal(target);
+  };
+
+  private scheduleReveal(node: Node): void {
+    if (isExtensionNode(node)) return;
+    this.schedule(node);
+    // The expanded control and its article panel are often siblings.
+    const controls = elementFor(node)?.getAttribute?.('aria-controls') ?? '';
+    for (const id of controls.split(/\s+/).slice(0, 16)) {
+      if (!id || id.length > 128) continue;
+      const panel = document.getElementById?.(id);
+      if (panel) this.schedule(panel);
+    }
   }
 
   schedule(node: Node, settle = true): void {
@@ -112,6 +133,9 @@ export class DynamicPageObserver {
     this.closed = true;
     this.mutation.disconnect();
     this.intersection.disconnect();
+    for (const type of ['toggle', 'transitionend', 'animationend']) {
+      document.removeEventListener?.(type, this.onReveal, true);
+    }
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
     this.dirty.clear();
