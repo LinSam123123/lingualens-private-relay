@@ -118,6 +118,57 @@ function json(response, status, body, headers = {}) {
   response.end(JSON.stringify(body));
 }
 
+const dynamicFixturePage = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Dynamic translation fixture</title></head>
+<body>
+<nav>
+  <button id="add">Add paragraph</button>
+  <button id="replace">Replace source</button>
+  <button id="reveal">Reveal hidden text</button>
+  <button id="append">Append twenty rows</button>
+  <button id="reuse">Reuse virtual row</button>
+  <button id="spa">Next SPA chapter</button>
+  <a href="/fixture-dynamic?chapter=2">Next document</a>
+  <a href="http://localhost:17891/fixture-dynamic">Different origin</a>
+</nav>
+<main>
+  <h1>Dynamic translation chapter</h1>
+  <p id="source">Original source paragraph with a <a href="#end">working link</a> and <strong>bold words</strong>.</p>
+  <p id="virtual">Virtual list row number one.</p>
+  <p id="hidden" hidden>Previously hidden text should be translated after becoming visible.</p>
+  <div id="rows"></div>
+  <div style="height:2400px"></div>
+  <p id="end">Offscreen content becomes eligible when it approaches the viewport.</p>
+  <input value="This input must not change">
+  <pre>const code = "never translated";</pre>
+</main>
+<script>
+  let count = 0;
+  const rows = document.getElementById('rows');
+  function add() {
+    const p = document.createElement('p');
+    p.textContent = 'New paragraph ' + (++count) + ' added after the initial page translation.';
+    rows.append(p);
+  }
+  document.getElementById('add').onclick = add;
+  document.getElementById('replace').onclick = () => {
+    document.getElementById('source').firstChild.textContent = 'Website replacement ' + (++count) + ' preserves the existing link and bold words: ';
+  };
+  document.getElementById('reveal').onclick = () => { document.getElementById('hidden').hidden = false; };
+  document.getElementById('append').onclick = () => { for (let i = 0; i < 20; i++) add(); };
+  document.getElementById('reuse').onclick = () => {
+    document.getElementById('virtual').firstChild.textContent = 'Virtual list reused content ' + (++count) + '.';
+  };
+  document.getElementById('spa').onclick = () => {
+    history.pushState({}, '', '?spa=' + (++count));
+    document.getElementById('virtual').firstChild.textContent = 'New SPA chapter content ' + count + '.';
+    add();
+  };
+  setTimeout(add, 3000);
+  setTimeout(() => { document.getElementById('hidden').hidden = false; }, 5000);
+</script>
+</body></html>`;
+
 function translatedItems(body) {
   const messages = body.messages;
   const input = Array.isArray(messages)
@@ -200,6 +251,11 @@ const server = http.createServer((request, response) => {
     response.end(fixturePage);
     return;
   }
+  if (url.pathname === '/fixture-dynamic') {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(dynamicFixturePage);
+    return;
+  }
   if (url.pathname === '/fixture-long') {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     response.end(longFixturePage);
@@ -280,6 +336,10 @@ server.listen(port, '127.0.0.1', async () => {
   try {
     const models = await (await fetch(`${base}/ok/v1/models`)).json();
     assert.equal(models.data[0].id, 'mock-model');
+    const dynamicFixture = await (await fetch(`${base}/fixture-dynamic`)).text();
+    assert.match(dynamicFixture, /Next SPA chapter/);
+    assert.match(dynamicFixture, /Virtual list reused content/);
+    assert.match(dynamicFixture, /Different origin/);
     const longFixture = await (await fetch(`${base}/fixture-long`)).text();
     assert.match(longFixture, /Batch 16:/);
     const mixedFixture = await (await fetch(`${base}/fixture-mixed`)).text();

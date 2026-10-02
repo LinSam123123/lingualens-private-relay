@@ -221,6 +221,14 @@ export default defineContentScript({
           appHandle?.startPageTranslation();
           sendResponse({ ok: true });
           break;
+        case 'PAGE_AUTO_CHECK':
+          appHandle?.checkAutoPageTranslation();
+          sendResponse({ ok: true });
+          break;
+        case 'PAGE_AUTO_DISABLED':
+          appHandle?.disableAutoPageTranslation();
+          sendResponse({ ok: true });
+          break;
         case 'PAGE_TRANSLATE_STATUS': {
           const phase = appHandle?.getPageTranslatePhase() ?? 'idle';
           sendResponse({ phase });

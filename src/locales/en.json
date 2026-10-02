@@ -190,6 +190,12 @@
     "close": "Close"
   },
   "statusBar": {
+    "listening": "Watching for new content ({{done}}/{{total}})",
+    "channelDisconnected": "Translation channel interrupted",
+    "paused": "Automatic translation paused",
+    "budgetExhausted": "Page translation budget reached",
+    "stopAuto": "Stop automatic translation",
+    "supplement": "Translate new content",
     "preparing": "Preparing…",
     "translatingProgress": "Translating… {{done}}/{{total}} ({{percent}}%)",
     "translatedProgress": "Translated {{done}}/{{total}}",

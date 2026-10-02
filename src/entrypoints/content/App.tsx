@@ -10,6 +10,7 @@ import {
   type PageTranslatePhase,
 } from '../../shared/page-translate-phase';
 import { resolveDefaultTargetLang } from '../../shared/default-target-lang';
+import type { AutoPageState } from '../../shared/auto-page-policy';
 
 const ERROR_KEYS: Record<string, string> = {
   NO_PROVIDER: 'content.noProvider',
@@ -43,6 +44,8 @@ export interface ContentAppHandle {
   startPageTranslation: () => void;
   stopPageTranslation: () => void;
   restorePageTranslation: () => void;
+  checkAutoPageTranslation: () => void;
+  disableAutoPageTranslation: () => void;
 }
 
 interface Props {
@@ -201,6 +204,10 @@ export function ContentApp({ onReady }: Props) {
   }, []);
 
   const finishPageTranslateSession = (progress: TranslateProgress | null) => {
+    if (engineRef.current.listening) {
+      applyPageTranslatePhase('running');
+      return;
+    }
     const phase = phaseAfterPageTranslateEnds(progress);
     if (phase === 'idle') setPageProgress(null);
     applyPageTranslatePhase(phase);
@@ -222,7 +229,9 @@ export function ContentApp({ onReady }: Props) {
   const startPageTranslation = useCallback(async () => {
     const settings = settingsRef.current;
     const engine = engineRef.current;
+    if (engine.listening) { engine.supplement(); return; }
     if (engine.running || pageTranslatePhaseRef.current !== 'idle') return;
+    const epoch = ++autoPageEpoch.current;
 
     applyPageTranslatePhase('running');
     setPagePaused(false);
@@ -234,11 +243,19 @@ export function ContentApp({ onReady }: Props) {
     setPageProgress(initial);
 
     try {
+      const config = {
+        targetLang: settings?.defaultTargetLang ?? resolveDefaultTargetLang(),
+        sourceLang: settings?.defaultSourceLang ?? 'auto',
+        displayMode,
+      };
+      const armed = await browser.runtime.sendMessage({
+        type: 'PAGE_AUTO_START', payload: { documentId: engine.documentSessionId, config },
+      }).catch(() => null);
+      if (epoch !== autoPageEpoch.current) return;
       await engine.start(
         {
-          targetLang: settings?.defaultTargetLang ?? resolveDefaultTargetLang(),
-          sourceLang: settings?.defaultSourceLang ?? 'auto',
-          displayMode,
+          ...config,
+          continuous: armed?.success === true,
           maxCharsPerRequest: settings?.providers[0]?.maxCharsPerRequest ?? 8_000,
           maxItemsPerRequest: settings?.providers[0]?.maxItemsPerRequest ?? 0,
           maxPageChars: settings?.providers[0]?.maxPageChars ?? 100_000,
@@ -251,11 +268,15 @@ export function ContentApp({ onReady }: Props) {
         },
       );
     } finally {
-      finishPageTranslateSession(pageProgressRef.current);
+      if (epoch === autoPageEpoch.current) finishPageTranslateSession(pageProgressRef.current);
     }
   }, [displayMode]);
 
   const stopPageTranslation = () => {
+    autoPageEpoch.current += 1;
+    void browser.runtime.sendMessage({
+      type: 'PAGE_AUTO_STOP', payload: { documentId: engineRef.current.documentSessionId },
+    }).catch(() => undefined);
     void engineRef.current.cancel();
     setPagePaused(false);
     const current = pageProgressRef.current;
@@ -268,6 +289,10 @@ export function ContentApp({ onReady }: Props) {
   };
 
   const restorePageTranslation = () => {
+    autoPageEpoch.current += 1;
+    void browser.runtime.sendMessage({
+      type: 'PAGE_AUTO_STOP', payload: { documentId: engineRef.current.documentSessionId },
+    }).catch(() => undefined);
     void engineRef.current.restore();
     setPagePaused(false);
     pageProgressRef.current = null;
@@ -276,10 +301,16 @@ export function ContentApp({ onReady }: Props) {
   };
 
   const pausePageTranslation = () => {
+    void browser.runtime.sendMessage({
+      type: 'PAGE_AUTO_PAUSE', payload: { documentId: engineRef.current.documentSessionId, paused: true },
+    }).catch(() => undefined);
     void engineRef.current.pause().then(() => setPagePaused(true));
   };
 
   const resumePageTranslation = () => {
+    void browser.runtime.sendMessage({
+      type: 'PAGE_AUTO_PAUSE', payload: { documentId: engineRef.current.documentSessionId, paused: false },
+    }).catch(() => undefined);
     void engineRef.current.resume().then(() => setPagePaused(false));
   };
 
@@ -296,8 +327,73 @@ export function ContentApp({ onReady }: Props) {
     };
   };
 
+  const autoCheckInFlight = useRef(false);
+  const autoPageEpoch = useRef(0);
+  const checkAutoPageTranslation = async () => {
+    if (!settingsRef.current || autoCheckInFlight.current) return;
+    autoCheckInFlight.current = true;
+    const epoch = autoPageEpoch.current;
+    const engine = engineRef.current;
+    try {
+      const response = await browser.runtime.sendMessage({
+        type: 'PAGE_AUTO_READY', payload: { documentId: engine.documentSessionId },
+      });
+      if (epoch !== autoPageEpoch.current || !response?.success) return;
+      if (!response.data) {
+        if (engine.automaticActive) {
+          void engine.cancel();
+          setPagePaused(false);
+          applyPageTranslatePhase('done');
+        }
+        return;
+      }
+      const state = response.data as AutoPageState;
+      if (engine.listening) { engine.supplement(false); return; }
+      await engine.reattach();
+      if (epoch !== autoPageEpoch.current) return;
+      if (engine.listening) { applyPageTranslatePhase('running'); return; }
+      if (pageTranslatePhaseRef.current !== 'idle' || engine.running) return;
+      setDisplayMode(state.displayMode);
+      setPagePaused(state.paused);
+      applyPageTranslatePhase('running');
+      await engine.start({
+        ...currentPageOptions(), sourceLang: state.sourceLang, targetLang: state.targetLang,
+        displayMode: state.displayMode, continuous: true, visibleOnly: true, startPaused: state.paused,
+      }, (progress) => {
+        pageProgressRef.current = progress;
+        setPageProgress({ ...progress });
+      });
+      if (epoch === autoPageEpoch.current) finishPageTranslateSession(pageProgressRef.current);
+    } catch {
+      // A failed handshake must never silently enable automatic translation.
+    } finally { autoCheckInFlight.current = false; }
+  };
+  const autoCheckRef = useRef(checkAutoPageTranslation);
+  autoCheckRef.current = checkAutoPageTranslation;
+  useEffect(() => {
+    if (settings) void autoCheckRef.current();
+  }, [settings]);
+  useEffect(() => {
+    const hide = (event: PageTransitionEvent) => {
+      autoPageEpoch.current += 1;
+      if (event.persisted) void engineRef.current.suspend();
+      else void engineRef.current.cancel();
+    };
+    const show = (event: PageTransitionEvent) => {
+      if (event.persisted) void autoCheckRef.current();
+    };
+    window.addEventListener('pagehide', hide);
+    window.addEventListener('pageshow', show);
+    return () => {
+      window.removeEventListener('pagehide', hide);
+      window.removeEventListener('pageshow', show);
+      void engineRef.current.cancel();
+    };
+  }, []);
+
   const retryPageItems = async (kind: 'failed' | 'unknown') => {
     if (kind === 'unknown' && !window.confirm(t('statusBar.retryUnknownWarning'))) return;
+    const epoch = autoPageEpoch.current;
     applyPageTranslatePhase('running');
     setPagePaused(false);
     const onProgress = (progress: TranslateProgress) => {
@@ -308,7 +404,7 @@ export function ContentApp({ onReady }: Props) {
       if (kind === 'failed') await engineRef.current.retryFailed(currentPageOptions(), onProgress);
       else await engineRef.current.retryUnknown(currentPageOptions(), onProgress);
     } finally {
-      finishPageTranslateSession(pageProgressRef.current);
+      if (epoch === autoPageEpoch.current) finishPageTranslateSession(pageProgressRef.current);
     }
   };
 
@@ -316,6 +412,9 @@ export function ContentApp({ onReady }: Props) {
     const newMode: DisplayMode = displayMode === 'bilingual' ? 'replace' : 'bilingual';
     setDisplayMode(newMode);
     engineRef.current.switchMode(newMode);
+    if (engineRef.current.listening) void browser.runtime.sendMessage({
+      type: 'PAGE_AUTO_MODE', payload: { documentId: engineRef.current.documentSessionId, displayMode: newMode },
+    }).catch(() => undefined);
   }, [displayMode]);
 
   const STATUS_BAR_HEIGHT = 40;
@@ -589,6 +688,14 @@ export function ContentApp({ onReady }: Props) {
       startPageTranslation,
       stopPageTranslation,
       restorePageTranslation,
+      checkAutoPageTranslation: () => { void autoCheckRef.current(); },
+      disableAutoPageTranslation: () => {
+        if (!engineRef.current.listening && !engineRef.current.running) return;
+        autoPageEpoch.current += 1;
+        void engineRef.current.cancel();
+        setPagePaused(false);
+        applyPageTranslatePhase('done');
+      },
     });
   }, [onReady, startPageTranslation]);
 
@@ -603,7 +710,8 @@ export function ContentApp({ onReady }: Props) {
       {/* Page translation status bar */}
       <StatusBar
         progress={pageProgress}
-        running={pageTranslatePhase === 'running'}
+        running={pageTranslatePhase === 'running' && (pageProgress?.pending ?? 0) > 0}
+        listening={engineRef.current.listening}
         paused={pagePaused}
         displayMode={displayMode}
         collapsed={statusCollapsed}
@@ -615,6 +723,7 @@ export function ContentApp({ onReady }: Props) {
         onRetryUnknown={() => void retryPageItems('unknown')}
         onToggleMode={toggleDisplayMode}
         onToggleCollapse={() => setStatusCollapsed((c) => !c)}
+        onSupplement={() => engineRef.current.supplement()}
       />
 
       {/* Selection trigger button (normal, or floating over a pinned panel) */}

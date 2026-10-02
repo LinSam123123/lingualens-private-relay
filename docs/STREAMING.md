@@ -1,8 +1,10 @@
 # 分批、并发与逐条显示
 
-本轮先在 Chrome 上实现。Firefox 共享同一套代码，但没有做手动验收，也没有改 Firefox 凭据存储。
+流式链路使用 Chrome / Firefox 共享代码。Firefox 开发构建现已同步分批、并发、流式显示和异常状态修复；自动检查通过不代表真实浏览器验收。Firefox 凭据存储没有改动。独立环境验收步骤见 [FIREFOX_STREAMING_DEV.md](FIREFOX_STREAMING_DEV.md)。
 
 ## 行为
+
+当前开发版还支持同标签页同站自动延续与可见附近的增量翻译，见 [DYNAMIC_TRANSLATION.md](DYNAMIC_TRANSLATION.md)。首次手动翻译仍为快照；后续批次复用本文的流式、预算和异常处理。
 
 - 默认仍是非流式。设置里的「流式逐条显示」关掉时，路径与以前相同。
 - 打开后，每批用 SSE 收 JSONL。一行一个完整对象 `{"id":"原始ID","text":"译文"}`。

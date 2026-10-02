@@ -37,8 +37,12 @@
     "test:batch-diagnostics": "node --experimental-strip-types --test tests/batch-diagnostics.test.mjs",
     "test:batching-metrics": "node --experimental-strip-types --test tests/batching-metrics.test.mjs",
     "test:mock-relay": "node scripts/mock-relay.mjs --self-test",
-    "test": "npm run test:security && npm run test:relay && npm run test:relay-stream && npm run test:relay-adapter-stream && npm run test:stream-delivery && npm run test:engine-task && npm run test:batch-chain && npm run test:page-write-attempt && npm run test:scheduler && npm run test:scheduler-stream && npm run test:page-engine && npm run test:batch-diagnostics && npm run test:batching-metrics && npm run test:storage-access && npm run test:side-panel && npm run test:credential-idb && npm run test:mock-relay",
+    "test:build-audit": "node --test tests/build-audit.test.mjs",
+    "test:dynamic": "node --experimental-strip-types --test tests/node-revisions.test.mjs tests/dynamic-observer.test.mjs tests/dynamic-engine.test.mjs tests/auto-pages.test.mjs",
+    "test": "npm run test:security && npm run test:relay && npm run test:relay-stream && npm run test:relay-adapter-stream && npm run test:stream-delivery && npm run test:engine-task && npm run test:batch-chain && npm run test:page-write-attempt && npm run test:scheduler && npm run test:scheduler-stream && npm run test:page-engine && npm run test:batch-diagnostics && npm run test:batching-metrics && npm run test:storage-access && npm run test:side-panel && npm run test:credential-idb && npm run test:mock-relay && npm run test:build-audit && npm run test:dynamic",
     "audit:build": "node scripts/audit-build.mjs",
+    "audit:build:firefox": "node scripts/audit-build.mjs firefox",
+    "verify:firefox": "npm test && tsc --noEmit && npm run build:firefox && npm run audit:build:firefox",
     "verify": "npm test && tsc --noEmit && npm run build && npm run audit:build",
     "mock-relay": "node scripts/mock-relay.mjs",
     "postinstall": "wxt prepare"
