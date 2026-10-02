@@ -96,7 +96,7 @@ export class AutoPages {
   async navigation(tabId: number, url: string | undefined, loading = false): Promise<boolean | null> {
     return this.transaction(async (states) => {
       const state = states[String(tabId)];
-      if (state && ordinaryOrigin(url) !== state.origin) {
+      if (state && url !== undefined && ordinaryOrigin(url) !== state.origin) {
         delete states[String(tabId)];
         await this.dependencies.write(states);
         return false;

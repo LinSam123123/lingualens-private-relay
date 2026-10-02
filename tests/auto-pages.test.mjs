@@ -3,6 +3,7 @@ import test from 'node:test';
 import { AutoPages } from '../src/background/auto-pages.ts';
 import { parseAutoPageConfig } from '../src/shared/auto-page-policy.ts';
 import { isTranslationBatchRequest } from '../src/background/message-policy.ts';
+import { PageCheckQueue } from '../src/content/page-translator/page-check-queue.ts';
 
 const config = { sourceLang: 'en', targetLang: 'zh-CN', displayMode: 'replace' };
 const sender = { id: 'extension', tab: { id: 7 }, frameId: 0, url: 'https://example.com/chapter1' };
@@ -103,4 +104,54 @@ test('batch input rejects URL/key injection and oversized items, and accepts the
   assert.equal(isTranslationBatchRequest({ ...request, apiKey: 'fake-key' }), false);
   assert.equal(isTranslationBatchRequest({ ...request, items: [{ id: 'node-1', text: 'x'.repeat(20_001) }] }), false);
   assert.equal(isTranslationBatchRequest({ ...request, generation: 0 }), false);
+});
+
+test('an unavailable URL during loading does not disarm continuation or authorize the stale document', async () => {
+  const h = harness();
+  await h.service.message('PAGE_AUTO_START', { documentId: 'document-0001', config }, sender);
+  h.setUrl(undefined);
+  assert.equal(await h.service.navigation(7, undefined, true), true);
+  assert.ok(h.states()['7'].navigationPending);
+  await assert.rejects(h.service.assertLiveDocument('document-0001', sender), /STALE_PAGE/);
+  h.setUrl('https://example.com/chapter2');
+  await h.service.navigation(7, 'https://example.com/chapter2');
+  const next = await h.service.message('PAGE_AUTO_READY', { documentId: 'document-0002' },
+    { ...sender, url: 'https://example.com/chapter2' });
+  assert.equal(next.navigationPending, false);
+  assert.equal(next.origin, 'https://example.com');
+  assert.equal(await h.service.navigation(7, 'about:blank', true), false);
+});
+
+test('navigation checks during a pending handshake run once more instead of being lost', async () => {
+  const queue = new PageCheckQueue();
+  let release;
+  const calls = [];
+  const first = queue.run(async () => {
+    calls.push('early');
+    await new Promise((resolve) => { release = resolve; });
+  });
+  await Promise.resolve();
+  queue.run(async () => { calls.push('superseded'); });
+  queue.run(async () => { calls.push('final-url'); });
+  release();
+  await first;
+  assert.deepEqual(calls, ['early', 'final-url']);
+  await queue.run(async () => { calls.push('next'); });
+  assert.deepEqual(calls, ['early', 'final-url', 'next']);
+});
+
+test('stopping a page removes trailing navigation checks without cancelling the active response guard', async () => {
+  const queue = new PageCheckQueue();
+  let release;
+  const calls = [];
+  const active = queue.run(async () => {
+    calls.push('active');
+    await new Promise((resolve) => { release = resolve; });
+  });
+  await Promise.resolve();
+  queue.run(async () => { calls.push('late'); });
+  queue.clear();
+  release();
+  await active;
+  assert.deepEqual(calls, ['active']);
 });

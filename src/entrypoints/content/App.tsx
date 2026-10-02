@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react
 import { useTranslation } from 'react-i18next';
 import type { AppSettings, MessageResponse, SelectionTriggerMode, SelectionModifierKey } from '../../shared/types';
 import { PageTranslateEngine, type TranslateProgress, type DisplayMode, type PageTranslateOptions } from '../../content/page-translator/engine';
+import { PageCheckQueue } from '../../content/page-translator/page-check-queue';
 import { StatusBar } from '../../content/page-translator/StatusBar';
 import { AppLogo } from '../../shared/AppLogo';
 import { computeTriggerPosition } from '../../content/trigger-position';
@@ -274,6 +275,7 @@ export function ContentApp({ onReady }: Props) {
 
   const stopPageTranslation = () => {
     autoPageEpoch.current += 1;
+    autoChecks.current.clear();
     void browser.runtime.sendMessage({
       type: 'PAGE_AUTO_STOP', payload: { documentId: engineRef.current.documentSessionId },
     }).catch(() => undefined);
@@ -290,6 +292,7 @@ export function ContentApp({ onReady }: Props) {
 
   const restorePageTranslation = () => {
     autoPageEpoch.current += 1;
+    autoChecks.current.clear();
     void browser.runtime.sendMessage({
       type: 'PAGE_AUTO_STOP', payload: { documentId: engineRef.current.documentSessionId },
     }).catch(() => undefined);
@@ -327,11 +330,10 @@ export function ContentApp({ onReady }: Props) {
     };
   };
 
-  const autoCheckInFlight = useRef(false);
+  const autoChecks = useRef(new PageCheckQueue());
   const autoPageEpoch = useRef(0);
-  const checkAutoPageTranslation = async () => {
-    if (!settingsRef.current || autoCheckInFlight.current) return;
-    autoCheckInFlight.current = true;
+  const checkAutoPageTranslation = () => autoChecks.current.run(async () => {
+    if (!settingsRef.current) return;
     const epoch = autoPageEpoch.current;
     const engine = engineRef.current;
     try {
@@ -366,8 +368,8 @@ export function ContentApp({ onReady }: Props) {
       if (epoch === autoPageEpoch.current) finishPageTranslateSession(pageProgressRef.current);
     } catch {
       // A failed handshake must never silently enable automatic translation.
-    } finally { autoCheckInFlight.current = false; }
-  };
+    }
+  });
   const autoCheckRef = useRef(checkAutoPageTranslation);
   autoCheckRef.current = checkAutoPageTranslation;
   useEffect(() => {
@@ -376,6 +378,7 @@ export function ContentApp({ onReady }: Props) {
   useEffect(() => {
     const hide = (event: PageTransitionEvent) => {
       autoPageEpoch.current += 1;
+      autoChecks.current.clear();
       if (event.persisted) void engineRef.current.suspend();
       else void engineRef.current.cancel();
     };
@@ -387,6 +390,7 @@ export function ContentApp({ onReady }: Props) {
     return () => {
       window.removeEventListener('pagehide', hide);
       window.removeEventListener('pageshow', show);
+      autoChecks.current.clear();
       void engineRef.current.cancel();
     };
   }, []);
@@ -692,6 +696,7 @@ export function ContentApp({ onReady }: Props) {
       disableAutoPageTranslation: () => {
         if (!engineRef.current.listening && !engineRef.current.running) return;
         autoPageEpoch.current += 1;
+        autoChecks.current.clear();
         void engineRef.current.cancel();
         setPagePaused(false);
         applyPageTranslatePhase('done');
