@@ -138,6 +138,25 @@ export async function setTaskStatus(
   });
 }
 
+export async function ensureTaskControl(
+  taskId: string,
+  sessionId: string,
+  tabId: number,
+  status: TaskControlAction,
+): Promise<TaskJournalEntry> {
+  return mutateJournal((journal) => {
+    const existing = journal[taskId];
+    if (existing && (existing.sessionId !== sessionId || existing.tabId !== tabId)) throw new Error('TASK_OWNER_MISMATCH');
+    const task = existing ?? {
+      taskId, sessionId, tabId, requestsUsed: 0, charsUsed: 0, batches: {}, updatedAt: Date.now(), status,
+    };
+    task.status = status;
+    task.updatedAt = Date.now();
+    journal[taskId] = task;
+    return structuredClone(task);
+  });
+}
+
 export async function consumeDispatchBudget(
   taskId: string,
   sessionId: string,
@@ -193,6 +212,15 @@ export async function removeTabTaskJournals(tabId: number): Promise<void> {
   await mutateJournal((journal) => {
     for (const [taskId, task] of Object.entries(journal)) {
       if (task.tabId === tabId) delete journal[taskId];
+    }
+  });
+}
+
+export async function removeOtherDocumentJournals(tabId: number, sessionId: string): Promise<void> {
+  await mutateJournal((journal) => {
+    for (const [id, task] of Object.entries(journal)) {
+      // BFCache documents retain their budget while suspended; no original text is stored.
+      if (task.tabId === tabId && task.sessionId !== sessionId && task.status !== 'suspend') delete journal[id];
     }
   });
 }

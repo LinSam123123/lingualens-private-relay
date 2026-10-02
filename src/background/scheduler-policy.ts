@@ -40,10 +40,10 @@ export function taskControlPolicy(action: string): {
   cancelQueued: boolean;
 } {
   return {
-    pause: action === 'pause' ? true : action === 'resume' ? false : null,
+    pause: action === 'pause' || action === 'suspend' ? true : action === 'resume' ? false : null,
     dispatch: action === 'resume',
-    abortActive: action === 'cancel' || action === 'restore',
-    cancelQueued: action === 'cancel' || action === 'restore',
+    abortActive: action === 'cancel' || action === 'restore' || action === 'suspend',
+    cancelQueued: action === 'cancel' || action === 'restore' || action === 'suspend',
   };
 }
 

@@ -131,7 +131,7 @@ const SR_ONLY_RE = /\b(sr-only|visually-hidden|visuallyhidden|screen-reader-only
 
 function isInsideSkipTag(node: Node, root: Element): boolean {
   let current = node.parentElement;
-  while (current && current !== root) {
+  while (current) {
     if (SKIP_TAGS.has(current.tagName)) return true;
     const role = current.getAttribute('role');
     if (role && SKIP_ROLES.has(role)) return true;
@@ -142,6 +142,8 @@ function isInsideSkipTag(node: Node, root: Element): boolean {
       if (SR_ONLY_RE.test(cls)) return true;
     }
     if (current.hasAttribute('data-tippy-root') || current.hasAttribute('data-popper-placement')) return true;
+    if (current.hasAttribute('data-lingualens-translation')) return true;
+    if (!isVisible(current)) return true;
     current = current.parentElement;
   }
   return false;
@@ -468,20 +470,22 @@ export function extractSegments(
   return segments;
 }
 
-/** Extracts a static page snapshot while keeping a one-to-one DOM node mapping. */
+export function isEligibleTranslationNode(node: Node): boolean {
+  if (!node.textContent?.trim() || isInsideSkipTag(node, document.body)) return false;
+  const parent = node.parentElement;
+  if (!parent || parent.isContentEditable) return false;
+  if (parent.closest('[contenteditable]:not([contenteditable="false"])')) return false;
+  return isVisible(parent) && !isPopupOverlay(parent);
+}
+
+/** Extracts a snapshot or dirty subtree while keeping a one-to-one DOM node mapping. */
 export function extractTranslationItems(
   root: Element = document.body,
   maxPageChars = 100_000,
 ): DomTranslationItem[] {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
-      if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
-      if (isInsideSkipTag(node, root)) return NodeFilter.FILTER_REJECT;
-      const parent = node.parentElement;
-      if (!parent || parent.isContentEditable) return NodeFilter.FILTER_REJECT;
-      if (parent.closest('[contenteditable]:not([contenteditable="false"])')) return NodeFilter.FILTER_REJECT;
-      if (!isVisible(parent) || isPopupOverlay(parent)) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
+      return isEligibleTranslationNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
     },
   });
 

@@ -1,4 +1,4 @@
-import { extractTranslationItems, type DomTranslationItem } from './dom-walker.ts';
+import { extractTranslationItems, isEligibleTranslationNode, type DomTranslationItem } from './dom-walker.ts';
 import type {
   BatchItemResult,
   TranslationBatchRequest,
@@ -16,6 +16,8 @@ import {
   STREAM_DOM_FLUSH_MS,
   type StreamItemMessage,
 } from '../../shared/stream-delivery.ts';
+import { NodeRevisions } from './node-revisions.ts';
+import { DynamicPageObserver, nearViewport } from './dynamic-observer.ts';
 
 export type DisplayMode = 'replace' | 'bilingual';
 
@@ -27,6 +29,9 @@ export interface PageTranslateOptions {
   maxItemsPerRequest: number;
   maxPageChars: number;
   maxPageRequests: number;
+  continuous?: boolean;
+  visibleOnly?: boolean;
+  startPaused?: boolean;
 }
 
 export interface TranslateProgress {
@@ -38,6 +43,9 @@ export interface TranslateProgress {
   cancelled: number;
   /** Requests that ended abnormally after every one of their items was received. Not an item count. */
   abnormalBatches: number;
+  listening?: boolean;
+  budgetExhausted?: boolean;
+  channelDisconnected?: boolean;
 }
 
 type ProgressCallback = (progress: TranslateProgress) => void;
@@ -68,6 +76,19 @@ export class PageTranslateEngine {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingDomAck = new Map<string, { batchId: string; requestId: string; attempt: number }>();
   private reportedWriteKeys = new Set<string>();
+  private revisions = new NodeRevisions();
+  private observer: DynamicPageObserver | null = null;
+  private sessionOptions: PageTranslateOptions | null = null;
+  private pendingDynamic = new Map<string, DomTranslationItem>();
+  private deferredBatches: BatchDefinition[] = [];
+  private budgetExhausted = false;
+  private suspended = false;
+  private portLost = false;
+  private journalCharged = false;
+
+  get listening(): boolean { return this.observer !== null && !this.isCancelled; }
+  get automaticActive(): boolean { return this.sessionOptions?.continuous === true && !this.isCancelled; }
+  get documentSessionId(): string { return this.sessionId; }
 
   get running(): boolean {
     return this.isRunning;
@@ -80,14 +101,21 @@ export class PageTranslateEngine {
   async start(options: PageTranslateOptions, onProgress: ProgressCallback): Promise<void> {
     if (this.isRunning) return;
     this.resetTaskState();
+    this.isCancelled = false;
+    this.isPaused = options.startPaused === true;
     this.isRunning = true;
     this.generation += 1;
     this.streamClosed = false;
     this.displayMode = options.displayMode;
     this.progressListener = onProgress;
     this.taskId = crypto.randomUUID();
-    this.domItems = extractTranslationItems(document.body, options.maxPageChars);
+    this.sessionOptions = { ...options };
+    this.domItems = extractTranslationItems(document.body, options.maxPageChars)
+      .filter(() => !options.visibleOnly || (!document.hidden && !this.isPaused))
+      .filter((item) => !options.visibleOnly || !item.node.parentElement || nearViewport(item.node.parentElement))
+      .map((item) => this.revisions.claim(item)!).filter(Boolean);
     this.domById = new Map(this.domItems.map((item) => [item.id, item]));
+    if (options.continuous) this.watch();
 
     const networkItems = buildNetworkItems(this.domItems, options.maxCharsPerRequest);
     this.batches = buildBatches(
@@ -120,41 +148,172 @@ export class PageTranslateEngine {
     await this.finishTask(identity);
   }
 
+  private watch(): void {
+    if (this.observer || typeof MutationObserver === 'undefined' || typeof IntersectionObserver === 'undefined') return;
+    this.observer = new DynamicPageObserver(
+      (root) => this.collectDynamic(root),
+      (node) => this.revisions.isOwnText(node),
+      () => !this.isPaused && !this.isCancelled && !this.budgetExhausted && !document.hidden,
+    );
+    document.addEventListener('visibilitychange', this.onVisibility);
+    if (this.sessionOptions?.visibleOnly) this.observer.schedule(document.body);
+  }
+
+  private onVisibility = (): void => {
+    void this.control(document.hidden || this.isPaused ? 'pause' : 'resume');
+    if (!document.hidden) {
+      this.observer?.wake();
+      void this.pumpDynamic();
+    }
+  };
+
+  private collectDynamic(root: Element): void {
+    const options = this.sessionOptions;
+    if (!options || !this.listening || this.budgetExhausted) return;
+    for (const candidate of extractTranslationItems(root, options.maxPageChars)) {
+      const parent = candidate.node.parentElement;
+      if (!parent || !nearViewport(parent)) {
+        if (parent) this.observer?.defer(parent);
+        continue;
+      }
+      const item = this.revisions.claim(candidate);
+      if (!item) continue;
+      // A reused node no longer owns any marker belonging to its previous revision.
+      for (const previous of this.domItems.filter((entry) => entry.node === item.node)) {
+        for (const marker of this.bilingualMarkers.filter((entry) => entry.dataset.lingualensFor === previous.id)) marker.remove();
+      }
+      this.pendingDynamic.set(item.id, item);
+    }
+    void this.pumpDynamic();
+  }
+
+  /** Explicit supplementation is still viewport-gated and never retries an old revision. */
+  supplement(explicit = true): void {
+    if (!this.listening) return;
+    if (explicit) this.portLost = false;
+    this.observer?.schedule(document.body);
+    if (explicit) void this.pumpDynamic();
+  }
+
+  private async pumpDynamic(): Promise<void> {
+    if (this.isRunning || this.isPaused || this.isCancelled || this.suspended
+      || this.portLost || document.hidden || this.budgetExhausted || !this.sessionOptions || !this.listening) return;
+    const options = this.sessionOptions;
+    const additions: DomTranslationItem[] = [];
+    for (const [id, item] of this.pendingDynamic) {
+      this.pendingDynamic.delete(id);
+      if (!this.revisions.current(item)) continue;
+      additions.push(item);
+    }
+    if (additions.length === 0 && this.deferredBatches.length === 0) { this.emitProgress(); return; }
+    this.isRunning = true;
+    this.domItems.push(...additions);
+    for (const item of additions) this.domById.set(item.id, item);
+    const batches = this.deferredBatches.splice(0);
+    const newBatches = buildBatches(buildNetworkItems(additions, options.maxCharsPerRequest),
+      options.maxCharsPerRequest, options.maxItemsPerRequest);
+    for (const batch of newBatches) {
+      batch.batchId = `batch-${String(this.batches.length + 1).padStart(4, '0')}`;
+      this.batches.push(batch);
+      for (const item of batch.items) {
+        const chunks = this.chunksByDomId.get(item.domItemId) ?? [];
+        chunks.push(item);
+        this.chunksByDomId.set(item.domItemId, chunks);
+      }
+    }
+    batches.push(...newBatches);
+    this.emitProgress();
+    const identity = this.currentIdentity();
+    await this.ensureStreamPort(identity);
+    if (!this.isCurrent(identity) || this.isCancelled) return;
+    if (document.hidden || this.isPaused || this.portLost) {
+      this.deferredBatches.unshift(...batches);
+      this.isRunning = false;
+      this.emitProgress();
+      return;
+    }
+    await Promise.allSettled(batches.map((batch) => this.submitBatch(batch, options, () => this.emitProgress())));
+    await this.finishTask(identity);
+  }
+
+  private emitProgress(): void {
+    this.recountProgress();
+    this.progressListener?.({ ...this.progress });
+  }
+
+  private stopWatching(): void {
+    this.observer?.disconnect();
+    this.observer = null;
+    document.removeEventListener?.('visibilitychange', this.onVisibility);
+    this.pendingDynamic.clear();
+    this.deferredBatches = [];
+  }
+
+  async suspend(): Promise<void> {
+    if (!this.listening) return;
+    this.suspended = true;
+    this.generation += 1;
+    this.stopWatching();
+    this.streamClosed = true;
+    this.closeStreamPort();
+    this.isRunning = false;
+    for (const batch of this.batches) this.recordBatchFailure(batch, 'cancelled', 'PAGE_SUSPENDED');
+    await this.control('suspend');
+  }
+
+  async reattach(): Promise<void> {
+    if (!this.suspended || this.isCancelled || !this.sessionOptions) return;
+    this.suspended = false;
+    this.portLost = false;
+    this.streamClosed = false;
+    await this.control(this.isPaused ? 'pause' : 'resume');
+    this.watch();
+    this.supplement();
+    this.emitProgress();
+  }
+
   async pause(): Promise<void> {
-    if (!this.isRunning || this.isPaused) return;
+    if ((!this.isRunning && !this.listening) || this.isPaused) return;
     this.isPaused = true;
     await this.control('pause');
   }
 
   async resume(): Promise<void> {
-    if (!this.isRunning || !this.isPaused || this.isCancelled) return;
+    if ((!this.isRunning && !this.listening) || !this.isPaused || this.isCancelled) return;
     this.isPaused = false;
+    this.portLost = false;
     await this.control('resume');
+    this.observer?.wake();
+    void this.pumpDynamic();
   }
 
   async cancel(): Promise<void> {
+    this.stopWatching();
     if (!this.taskId || this.isCancelled) return;
     this.isCancelled = true;
+    this.generation += 1;
     this.streamClosed = true;
     this.isPaused = false;
     this.closeStreamPort();
-    await this.control('cancel');
     this.isRunning = false;
+    await this.control('cancel');
   }
 
   async restore(): Promise<void> {
+    this.stopWatching();
     this.generation += 1;
     this.streamClosed = true;
     this.closeStreamPort();
-    if (this.taskId) await this.control('restore');
+    const control = this.taskId ? this.control('restore') : Promise.resolve();
     this.isCancelled = true;
     this.isRunning = false;
     this.isPaused = false;
     for (const item of this.domItems) {
-      if (item.node.parentNode) item.node.textContent = item.originalText;
+      this.revisions.restore(item);
     }
     this.removeBilingualMarkers();
     this.resetTaskState();
+    await control;
   }
 
   async retryFailed(
@@ -185,8 +344,11 @@ export class PageTranslateEngine {
       .map((batch) => ({ ...batch, items: batch.items.filter((item) => ids.includes(item.id)) }))
       .filter((batch) => batch.items.length > 0);
     this.isCancelled = false;
+    this.portLost = false;
     this.isRunning = true;
     const identity = this.currentIdentity();
+    await this.control('resume');
+    if (!this.isCurrent(identity)) return;
     await this.ensureStreamPort(identity);
     if (!this.isCurrent(identity)) return;
     await Promise.allSettled(
@@ -203,8 +365,9 @@ export class PageTranslateEngine {
 
   switchMode(mode: DisplayMode): void {
     this.displayMode = mode;
+    if (this.sessionOptions) this.sessionOptions.displayMode = mode;
     for (const item of this.domItems) {
-      if (item.node.parentNode) item.node.textContent = item.originalText;
+      this.revisions.restore(item);
     }
     this.removeBilingualMarkers();
     for (const item of this.domItems) this.applyDomItemIfReady(item.id, mode);
@@ -228,6 +391,7 @@ export class PageTranslateEngine {
       manualRetryUnknown,
       manualRetryFailed,
       generation: this.generation,
+      requiresExistingTask: this.journalCharged,
     };
     const identity = {
       taskId: request.taskId,
@@ -238,15 +402,25 @@ export class PageTranslateEngine {
       const response = await browser.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: request });
       if (!this.isCurrent(identity)) return;
       if (!response?.success) {
+        if (response?.error === 'DOCUMENT_JOURNAL_LOST' || response?.error === 'BACKGROUND_UNAVAILABLE') {
+          this.portLost = true;
+          this.journalCharged = true;
+        }
         this.recordBatchFailure(batch, 'interrupted/unknown', response?.error ?? 'BACKGROUND_UNAVAILABLE');
       } else {
-        this.applyBatchResult(response.data as TranslationBatchResult, options.displayMode);
+        const result = response.data as TranslationBatchResult;
+        if (result.items.some((item) => item.error === 'PAGE_BUDGET_EXCEEDED')) this.budgetExhausted = true;
+        this.applyBatchResult(result, this.displayMode);
       }
     } catch {
       const recovered = await this.recoverBatch(request, identity);
       if (!this.isCurrent(identity)) return;
-      if (recovered) this.applyBatchResult(recovered, options.displayMode);
-      else this.recordBatchFailure(batch, 'interrupted/unknown', 'BACKGROUND_INTERRUPTED');
+      if (recovered) this.applyBatchResult(recovered, this.displayMode);
+      else {
+        this.portLost = true;
+        this.journalCharged = true;
+        this.recordBatchFailure(batch, 'interrupted/unknown', 'BACKGROUND_INTERRUPTED');
+      }
     } finally {
       if (!this.isCurrent(identity)) return;
       this.flushDom(this.displayMode);
@@ -269,6 +443,11 @@ export class PageTranslateEngine {
   private async finishTask(identity: { taskId: string; sessionId: string; generation: number }): Promise<void> {
     if (!this.isCurrent(identity)) return;
     this.isRunning = false;
+    if (this.listening || this.suspended) {
+      this.emitProgress();
+      if (!this.suspended) void this.pumpDynamic();
+      return;
+    }
     await browser.runtime.sendMessage({
       type: 'TASK_CONTROL',
       payload: { taskId: identity.taskId, sessionId: identity.sessionId, action: 'complete' },
@@ -327,8 +506,13 @@ export class PageTranslateEngine {
   }
 
   private applyBatchResult(result: TranslationBatchResult, mode: DisplayMode): void {
+    if (result.requestsUsed > 0) this.journalCharged = true;
     this.batchOutcomes.set(result.batchId, result.status);
     for (const item of result.items) {
+      if (!this.currentNetworkItem(item.id)) {
+        if (!this.translatedChunks.has(item.id)) this.itemFailures.set(item.id, { id: item.id, status: 'cancelled', error: 'NODE_REVISED' });
+        continue;
+      }
       if (item.status === 'completed' && item.translated !== undefined) {
         if (!this.streamClosed && !this.translatedChunks.has(item.id)) {
           this.translatedChunks.set(item.id, item.translated);
@@ -356,11 +540,11 @@ export class PageTranslateEngine {
   private applyDomItemIfReady(domItemId: string, mode: DisplayMode): boolean {
     const item = this.domById.get(domItemId);
     const chunks = this.chunksByDomId.get(domItemId) ?? [];
-    if (!item || chunks.length === 0 || chunks.some((chunk) => !this.translatedChunks.has(chunk.id))) return false;
+    if (!item || !this.revisions.current(item) || !isEligibleTranslationNode(item.node)
+      || chunks.length === 0 || chunks.some((chunk) => !this.translatedChunks.has(chunk.id))) return false;
     const translated = chunks.map((chunk) => this.translatedChunks.get(chunk.id)!).join(' ');
     if (mode === 'replace') {
-      item.node.textContent = `${item.leadingWhitespace}${translated}${item.trailingWhitespace}`;
-      return true;
+      return this.revisions.write(item, `${item.leadingWhitespace}${translated}${item.trailingWhitespace}`);
     }
     if (this.bilingualMarkers.some((marker) => marker.dataset.lingualensFor === domItemId)) return false;
     const marker = document.createElement('span');
@@ -415,6 +599,8 @@ export class PageTranslateEngine {
             this.streamPort = null;
             this.boundTaskId = '';
             this.boundGeneration = 0;
+            this.portLost = true;
+            this.emitProgress();
           }
           finish();
         });
@@ -456,6 +642,7 @@ export class PageTranslateEngine {
       expectedIds: new Set(this.batches.flatMap((batch) => batch.items.map((item) => item.id))),
     }, value as StreamItemMessage);
     if (decision !== 'apply') return;
+    if (!this.currentNetworkItem(value.item.id)) return;
     this.translatedChunks.set(value.item.id, value.item.text);
     this.itemFailures.delete(value.item.id);
     this.queueDomItem(value.item.id, value.batchId, value.requestId, value.attempt);
@@ -524,6 +711,9 @@ export class PageTranslateEngine {
       unknown,
       cancelled,
       abnormalBatches: this.abnormalBatchCount(),
+      listening: this.listening,
+      budgetExhausted: this.budgetExhausted,
+      channelDisconnected: this.portLost,
     };
   }
 
@@ -538,7 +728,13 @@ export class PageTranslateEngine {
     return count;
   }
 
-  private async control(action: 'pause' | 'resume' | 'cancel' | 'restore'): Promise<void> {
+  private currentNetworkItem(id: string): boolean {
+    const network = this.batches.flatMap((batch) => batch.items).find((item) => item.id === id);
+    const dom = network && this.domById.get(network.domItemId);
+    return Boolean(dom && this.revisions.current(dom) && isEligibleTranslationNode(dom.node));
+  }
+
+  private async control(action: 'pause' | 'resume' | 'cancel' | 'restore' | 'suspend'): Promise<void> {
     const taskId = this.taskId;
     const sessionId = this.sessionId;
     if (!taskId) return;
@@ -554,6 +750,15 @@ export class PageTranslateEngine {
   }
 
   private resetTaskState(): void {
+    this.stopWatching();
+    this.revisions = new NodeRevisions();
+    this.sessionOptions = null;
+    this.budgetExhausted = false;
+    this.suspended = false;
+    this.portLost = false;
+    this.journalCharged = false;
+    this.domItems = [];
+    this.domById.clear();
     this.closeStreamPort();
     this.translatedChunks.clear();
     this.itemFailures.clear();

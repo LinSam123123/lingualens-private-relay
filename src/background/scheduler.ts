@@ -51,6 +51,7 @@ interface RuntimeTask {
   cancelled: boolean;
   queue: PendingBatch[];
   active: Map<string, AbortController>;
+  settling: Set<Promise<void>>;
 }
 
 function itemResults(
@@ -102,7 +103,7 @@ export class TranslationScheduler {
   private runtimeTask(taskId: string): RuntimeTask {
     let task = this.tasks.get(taskId);
     if (!task) {
-      task = { paused: false, cancelled: false, queue: [], active: new Map() };
+      task = { paused: false, cancelled: false, queue: [], active: new Map(), settling: new Set() };
       this.tasks.set(taskId, task);
     }
     return task;
@@ -116,9 +117,17 @@ export class TranslationScheduler {
     config: ProviderConfig,
   ): Promise<TranslationBatchResult> {
     this.validateRequest(request, config);
+    if (request.requiresExistingTask && !await getTaskJournal(request.taskId, request.sessionId)) {
+      throw new Error('DOCUMENT_JOURNAL_LOST');
+    }
     this.maxConcurrency = Math.min(10, Math.max(1, config.maxConcurrency ?? 2));
     if (!this.taskStarted.has(request.taskId)) this.taskStarted.set(request.taskId, Date.now());
     const journal = await ensureTask(request, tabId);
+    if (journal.status === 'cancel' || journal.status === 'restore') {
+      const stopped = await transitionBatch(request.taskId, request.batchId, 'cancelled');
+      return resultFrom(request, 'cancelled', stopped, stopped.batches[request.batchId].attempt,
+        itemResults(request, 'cancelled', 'CANCELLED'));
+    }
     const prior = journal.batches[request.batchId];
     if (prior.requestId !== request.requestId) throw new Error('REQUEST_ID_MISMATCH');
     const priorDecision = priorBatchDecision(prior.status, {
@@ -139,7 +148,9 @@ export class TranslationScheduler {
     }
 
     return new Promise((resolve) => {
+      const freshRuntime = !this.tasks.has(request.taskId);
       const runtime = this.runtimeTask(request.taskId);
+      if (freshRuntime && (journal.status === 'pause' || journal.status === 'suspend')) runtime.paused = true;
       runtime.tabId = tabId;
       runtime.queue.push({
         request,
@@ -174,12 +185,25 @@ export class TranslationScheduler {
       if (!entry) return;
       const pending = entry.queue.shift()!;
       this.running++;
-      void this.execute(pending, entry)
+      const operation = this.execute(pending, entry)
         .then(pending.resolve)
+        .catch(async () => {
+          const journal = await getTaskJournal(pending.request.taskId, pending.request.sessionId).catch(() => null);
+          const status = entry.cancelled ? 'cancelled' : 'interrupted/unknown';
+          pending.resolve({
+            taskId: pending.request.taskId, batchId: pending.request.batchId,
+            requestId: pending.request.requestId, status,
+            attempts: journal?.batches[pending.request.batchId]?.attempt ?? 0,
+            requestsUsed: journal?.requestsUsed ?? 0, charsUsed: journal?.charsUsed ?? 0,
+            items: itemResults(pending.request, status, entry.cancelled ? 'CANCELLED' : 'BACKGROUND_INTERRUPTED'),
+          });
+        })
         .finally(() => {
+          entry.settling.delete(operation);
           this.running--;
           void this.dispatch();
         });
+      entry.settling.add(operation);
     }
   }
 
@@ -225,6 +249,11 @@ export class TranslationScheduler {
         return resultFrom(request, 'failed', journal, attempt, itemResults(request, 'failed', 'PAGE_BUDGET_EXCEEDED'));
       }
       attempt = budget.journal.batches[request.batchId]?.attempt ?? attempt + 1;
+      if (runtime.cancelled) {
+        const stopped = await transitionBatch(request.taskId, request.batchId, 'cancelled');
+        return resultFrom(request, 'cancelled', stopped, attempt,
+          itemResults(request, 'cancelled', 'CANCELLED'));
+      }
 
       const controller = new AbortController();
       runtime.active.set(request.batchId, controller);
@@ -468,6 +497,7 @@ export class TranslationScheduler {
   async control(taskId: string, sessionId: string, action: TaskControlAction): Promise<boolean> {
     const runtime = this.runtimeTask(taskId);
     const policy = taskControlPolicy(action);
+    if (action === 'resume') runtime.cancelled = false;
     if (policy.pause !== null) runtime.paused = policy.pause;
     if (policy.dispatch) await this.dispatch();
     if (policy.abortActive) {
@@ -499,14 +529,22 @@ export class TranslationScheduler {
     return Boolean(journal);
   }
 
-  async cancelTab(tabId: number): Promise<void> {
+  async cancelTab(tabId: number, preserveJournals = false): Promise<void> {
     for (const [taskId, runtime] of this.tasks) {
       if (runtime.tabId === tabId) {
         runtime.cancelled = true;
+        // Resolve queued callers before releasing the runtime; do not strand page promises.
+        for (const queued of runtime.queue.splice(0)) {
+          const journal = await transitionBatch(taskId, queued.request.batchId, 'cancelled');
+          queued.resolve(resultFrom(queued.request, 'cancelled', journal,
+            journal.batches[queued.request.batchId].attempt,
+            itemResults(queued.request, 'cancelled', 'CANCELLED')));
+        }
         for (const controller of runtime.active.values()) controller.abort();
+        await Promise.allSettled([...runtime.settling]);
         this.tasks.delete(taskId);
       }
     }
-    await removeTabTaskJournals(tabId);
+    if (!preserveJournals) await removeTabTaskJournals(tabId);
   }
 }

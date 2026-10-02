@@ -78,6 +78,8 @@ export interface TranslationBatchRequest {
   items: TranslationItem[];
   manualRetryUnknown?: boolean;
   manualRetryFailed?: boolean;
+  /** Fail closed if a previously charged document journal has disappeared. */
+  requiresExistingTask?: boolean;
   /** Page-task generation. Late stream messages from an older generation are ignored. */
   generation?: number;
 }
@@ -100,7 +102,7 @@ export interface TranslationBatchResult {
   charsUsed: number;
 }
 
-export type TaskControlAction = 'pause' | 'resume' | 'cancel' | 'restore' | 'complete';
+export type TaskControlAction = 'pause' | 'resume' | 'cancel' | 'restore' | 'complete' | 'suspend';
 
 export type ChunkingMode = 'quality' | 'speed';
 
@@ -136,6 +138,10 @@ export interface RuntimeSettingsPatch {
 }
 
 export type MessageType =
+  | { type: 'PAGE_AUTO_START'; payload: { documentId: string; config: { sourceLang: string; targetLang: string; displayMode: 'replace' | 'bilingual' } } }
+  | { type: 'PAGE_AUTO_READY' | 'PAGE_AUTO_STOP'; payload: { documentId: string } }
+  | { type: 'PAGE_AUTO_PAUSE'; payload: { documentId: string; paused: boolean } }
+  | { type: 'PAGE_AUTO_MODE'; payload: { documentId: string; displayMode: 'replace' | 'bilingual' } }
   | { type: 'TRANSLATE'; payload: TranslateRequest }
   | { type: 'VERIFY_CONFIG'; payload: { providerConfig: ProviderConfig } }
   | { type: 'GET_SETTINGS' }
