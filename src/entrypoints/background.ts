@@ -1,4 +1,4 @@
-import { handleMessage, getSettings, saveSettings, handleTabRemoved } from '../background/message-router';
+import { handleMessage, getSettings, saveSettings, handleTabRemoved, handleTabNavigation } from '../background/message-router';
 import { registerInstallOnboarding } from '../background/onboarding';
 import {
   isPageTranslateStarted,
@@ -297,13 +297,15 @@ export default defineBackground(() => {
     if (tab.active && tab.id) updatePageContextMenuIfFocusedTab(tab.id).catch(() => {});
   });
 
-  browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === 'loading') {
       pageTranslatePhaseByTab.delete(tabId);
-      void requireInitialization().then(() => handleTabRemoved(tabId));
     }
     // Session restore after cold start often skips `loading`; `complete` carries the final URL.
     if (changeInfo.status === 'loading' || changeInfo.status === 'complete' || changeInfo.url) {
+      void requireInitialization().then(() => handleTabNavigation(
+        tabId, changeInfo.url ?? tab.url, changeInfo.status === 'loading',
+      )).catch(() => undefined);
       updatePageContextMenuIfFocusedTab(tabId).catch(() => {});
     }
   });

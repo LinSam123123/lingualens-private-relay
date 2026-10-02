@@ -23,12 +23,15 @@ import {
   isOptionsSender,
   isOwnExtensionSender,
   isTranslateRequest,
+  isTranslationBatchRequest,
   type RuntimeSenderLike,
 } from './message-policy';
 import { RelayAdapter } from '../providers/relay';
 import { TranslationScheduler } from './scheduler';
-import { getTaskJournal } from './task-journal';
+import { getTaskJournal, ensureTaskControl } from './task-journal';
 import { combineBatchResult } from './batch-result';
+import { autoPages } from './auto-pages';
+import { removeOtherDocumentJournals } from './task-journal';
 import { cacheOnlyDiagnostic, recordBatchDiagnostic } from './batch-diagnostics';
 import {
   batchDiagnosticsSnapshot,
@@ -39,6 +42,7 @@ import {
 const providerManager = new ProviderManager();
 const translationScheduler = new TranslationScheduler();
 const diagnosticLocks = new Map<string, Promise<unknown>>();
+const navigationBarriers = new Map<number, Promise<void>>();
 
 function singleFlight<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const active = diagnosticLocks.get(key);
@@ -49,7 +53,27 @@ function singleFlight<T>(key: string, operation: () => Promise<T>): Promise<T> {
 }
 
 export async function handleTabRemoved(tabId: number): Promise<void> {
+  await autoPages.remove(tabId);
   await translationScheduler.cancelTab(tabId);
+}
+
+export function handleTabNavigation(tabId: number, url: string | undefined, loading: boolean): Promise<void> {
+  const previous = navigationBarriers.get(tabId) ?? Promise.resolve();
+  const operation = previous.catch(() => undefined).then(async () => {
+    const enabled = await autoPages.navigation(tabId, url, loading);
+    if (loading) await translationScheduler.cancelTab(tabId, true);
+    if (enabled === false) {
+      await translationScheduler.cancelTab(tabId);
+      await browser.tabs.sendMessage(tabId, { type: 'PAGE_AUTO_DISABLED' }).catch(() => undefined);
+    } else if (enabled && !loading) {
+      await browser.tabs.sendMessage(tabId, { type: 'PAGE_AUTO_CHECK' }).catch(() => undefined);
+    }
+  });
+  navigationBarriers.set(tabId, operation);
+  void operation.finally(() => {
+    if (navigationBarriers.get(tabId) === operation) navigationBarriers.delete(tabId);
+  }).catch(() => undefined);
+  return operation;
 }
 
 function stripSecrets(config: ProviderConfig): ProviderConfig {
@@ -269,6 +293,7 @@ async function handleTranslationBatch(
   request: TranslationBatchRequest,
   tabId: number,
   frameId: number,
+  sender: RuntimeSenderLike,
 ): Promise<TranslationBatchResult> {
   const { relay, config } = await configuredRelayRuntime();
   const cached = await Promise.all(request.items.map(async (item) => ({
@@ -287,6 +312,8 @@ async function handleTranslationBatch(
     }));
   }
   if (missing.length > 0) {
+    await navigationBarriers.get(tabId);
+    await autoPages.assertLiveDocument(request.sessionId, sender);
     scheduled = await translationScheduler.submit(
       { ...request, items: missing },
       tabId,
@@ -343,6 +370,22 @@ export async function handleMessage(
   if (!isOwnExtensionSender(sender, extensionId)) return { success: false, error: 'UNTRUSTED_SENDER' };
 
   switch (message.type) {
+    case 'PAGE_AUTO_START':
+    case 'PAGE_AUTO_READY':
+    case 'PAGE_AUTO_STOP':
+    case 'PAGE_AUTO_PAUSE':
+    case 'PAGE_AUTO_MODE': {
+      try {
+        if (sender.tab?.id !== undefined) await navigationBarriers.get(sender.tab.id);
+        const state = await autoPages.message(String(message.type), message.payload, sender);
+        if (message.type === 'PAGE_AUTO_READY' && sender.tab?.id !== undefined) {
+          await removeOtherDocumentJournals(sender.tab.id, (message.payload as { documentId: string }).documentId);
+        }
+        return { success: true, data: state };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'AUTO_PAGE_FAILED' };
+      }
+    }
     case 'TRANSLATE': {
       if (!isTranslateRequest(message.payload)) return { success: false, error: 'INVALID_TRANSLATE_REQUEST' };
       return handleTranslate(message.payload);
@@ -366,11 +409,13 @@ export async function handleMessage(
     case 'TRANSLATE_BATCH': {
       const tabId = sender.tab?.id;
       if (tabId == null) return { success: false, error: 'CONTENT_SCRIPT_REQUIRED' };
+      if (!isTranslationBatchRequest(message.payload)) return { success: false, error: 'INVALID_BATCH_REQUEST' };
       try {
         const data = await handleTranslationBatch(
           message.payload as TranslationBatchRequest,
           tabId,
           sender.frameId ?? 0,
+          sender,
         );
         return { success: true, data } as MessageResponse<TranslationBatchResult>;
       } catch (error) {
@@ -380,18 +425,27 @@ export async function handleMessage(
     case 'TASK_CONTROL': {
       const tabId = sender.tab?.id;
       const payload = message.payload as { taskId?: string; sessionId?: string; action?: string };
-      if (tabId == null || !payload.taskId || !payload.sessionId) {
+      if (tabId == null || !/^[a-zA-Z0-9-]{8,128}$/.test(payload.taskId ?? '')
+        || !/^[a-zA-Z0-9-]{8,128}$/.test(payload.sessionId ?? '')) {
         return { success: false, error: 'INVALID_TASK_CONTROL' };
       }
-      const journal = await getTaskJournal(payload.taskId, payload.sessionId);
-      if (!journal || journal.tabId !== tabId) return { success: false, error: 'TASK_NOT_FOUND' };
-      const allowed = ['pause', 'resume', 'cancel', 'restore', 'complete'] as const;
+      const allowed = ['pause', 'resume', 'cancel', 'restore', 'complete', 'suspend'] as const;
       if (!allowed.includes(payload.action as typeof allowed[number])) {
         return { success: false, error: 'INVALID_TASK_CONTROL' };
       }
+      const taskId = payload.taskId!;
+      const sessionId = payload.sessionId!;
+      let journal = await getTaskJournal(taskId, sessionId);
+      if (journal && journal.tabId !== tabId) return { success: false, error: 'TASK_NOT_FOUND' };
+      if (!journal) {
+        if (payload.action === 'complete') return { success: false, error: 'TASK_NOT_FOUND' };
+        try {
+          journal = await ensureTaskControl(taskId, sessionId, tabId, payload.action as typeof allowed[number]);
+        } catch { return { success: false, error: 'TASK_NOT_FOUND' }; }
+      }
       const changed = await translationScheduler.control(
-        payload.taskId,
-        payload.sessionId,
+        taskId,
+        sessionId,
         payload.action as typeof allowed[number],
       );
       return { success: true, data: changed };
