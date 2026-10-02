@@ -33,8 +33,9 @@ Background 的 storage.session 仅保存标签页 origin、文档 ID、语言、
 
 1. 打开 `http://127.0.0.1:17891/fixture-dynamic`，点击一次翻译；观察延迟新增与隐藏正文自动翻译，向下滚动查看屏幕外段落。
 2. 点击 Add paragraph、Replace source、Reuse virtual row 和 Next SPA chapter；确认只翻译变化正文，不出现译文嵌套，SPA 不重置预算。
+   打开 Expandable article section、Toggle article drawer 和 Reveal sliding drawer；关闭后再打开，成功译文不应产生重复 fetch。请求期间关闭、结束后重新打开也应显示已收到的译文。
 3. 暂停并新增正文，继续后应翻译；切到后台并新增，返回后应继续。恢复原文检查链接、粗体和网站最新正文。
-4. 点击 Next document：同站自动继续。点击 Different origin：停止自动翻译。后退测试往返缓存，观察预算和任务身份，不只看译文。
+4. 点击 Next document 或 Same-origin redirect：同站自动继续。点击 Different origin：停止自动翻译。后退测试往返缓存，观察预算和任务身份，不只看译文。协议、www/非 www、主机或端口变化都属于跨 origin，不会自动发送新站正文。
 5. 降低开发配置的页面请求预算验证耗尽；模拟 SW / Port 中断核对 unknown 不重发及手动处理。不要清日常配置的缓存或 Key。
 
 ## 验证状态
@@ -43,4 +44,22 @@ Background 的 storage.session 仅保存标签页 origin、文档 ID、语言、
 
 2026-10-02：`npm run verify` 通过，包含 17 项新增增量/导航用例、全部既有测试、类型检查、Chrome production 构建与审计；Firefox production 构建及 `npm run audit:build:firefox` 也通过。`npm run verify:firefox` 可重复运行同一套检查。
 
-本轮没有操作日常浏览器配置、读取真实 Key、调用付费接口、升级依赖或制作签名包。真实 Chrome / Firefox 的上述点击验收仍需完成。
+初版没有操作日常浏览器配置、读取真实 Key、调用付费接口、升级依赖或制作签名包。真实 Chrome / Firefox 完整扩展的上述点击验收仍需完成。
+
+## 展开补译修复（2026-10-02）
+
+开发版识别标记为 `dynamic-reveal-v2`，扩展版本号不变。
+
+- 监听 `open`、`aria-expanded`、`aria-controls`、`data-state` 和 `inert`；原生 toggle 及展开动画结束也会唤醒相关子树。通过 aria-controls 定位相邻正文，不因每次展开扫描整个页面。
+- 关闭的原生 details 只翻译可见 summary；普通 dropdown/popover/popup 正文不再仅因 CSS 类名被当成菜单，tooltip 和真正的菜单角色仍跳过。
+- 请求派发后临时隐藏的同一 revision 保留成功结果，重新可见时回写，不重发。迟到的页面回写确认仍属于真正写入节点的原 attempt。
+- 自动延续先筛选视口，再截取字符上限，避免长页面屏幕外内容占满扫描上限。
+- 加载事件暂时没有 URL 时保留但隔离原延续状态；不可确认的旧文档仍拒绝发送请求。等待中的握手会合并后续导航通知再检查一次，停止或销毁会清除待检查通知。
+
+新增 8 个回归用例。全部自动测试、类型检查以及两端 production 构建和产物审计通过。
+
+真实接口验证：仅使用用户明确提供的临时凭据及固定非敏感测试句子，共 8 次实际调用，使用 `gpt-5.6-luna`；Chat Completions / Responses 的 JSON 和 SSE 都正常。未刷新模型列表、未自动降级重发、未做六种模型的性能对比，不能据此得出长文章或高并发的性能结论。服务地址、Key 和原始 HTTP 错误体没有写入代码、文档、任务日志或构建。
+
+真实 Chrome DOM 验证：临时本机测试页直接运行共享 PageTranslateEngine、实际调度器和 RelayAdapter，通过本机测试桥代替扩展消息传输。已观察逐条回写、原生折叠框、ARIA/CSS 抽屉、动画抽屉、新增/改写正文、Mock 暂停/继续、恢复网站最新原文，以及真实请求期间收起、结束后展开而不增加调用数。测试页和本机桥已关闭，凭据内存会话已清除。
+
+这不是完整扩展安装验收：没有在真实浏览器里验证 tabs.onUpdated、完整导航/重定向、SW 重启、Firefox UI 或凭据重新加载。本轮没有改日常配置、IndexedDB 结构、扩展 ID、依赖或签名版。已签名的 Firefox 0.6.0 不会自动获得开发目录中的修复；须另行签名更新。临时 Key 已出现在会话中，测试后必须在中转后台撤销，而非只清空扩展输入框。

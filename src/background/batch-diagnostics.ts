@@ -23,7 +23,7 @@ export interface BatchDiagnostic {
   status: string;
 }
 
-export const BATCH_DIAGNOSTICS_BUILD = 'stream-timing-v1';
+export const BATCH_DIAGNOSTICS_BUILD = 'dynamic-reveal-v2';
 const MAX_ENTRIES = 40;
 
 export interface TaskTiming {
