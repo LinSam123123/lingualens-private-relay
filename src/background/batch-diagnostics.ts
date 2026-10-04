@@ -1,3 +1,6 @@
+import type { ReportedServiceTier } from '../shared/types';
+import { sanitizeServiceTier } from '../shared/relay-protocol.ts';
+
 export interface BatchDiagnostic {
   taskId: string;
   requestId: string;
@@ -21,9 +24,11 @@ export interface BatchDiagnostic {
   firstPageWriteMs: number | null;
   totalMs: number | null;
   status: string;
+  requestedServiceTier?: 'priority' | null;
+  reportedServiceTier?: ReportedServiceTier | null;
 }
 
-export const BATCH_DIAGNOSTICS_BUILD = 'dynamic-reveal-v2';
+export const BATCH_DIAGNOSTICS_BUILD = 'priority-mode-v1';
 const MAX_ENTRIES = 40;
 
 export interface TaskTiming {
@@ -126,6 +131,8 @@ export function recordBatchDiagnostic(entry: BatchDiagnostic): void {
       : Math.max(0, Math.round(entry.firstPageWriteMs)),
     totalMs: entry.totalMs == null || !Number.isFinite(entry.totalMs) ? null : Math.max(0, Math.round(entry.totalMs)),
     status: sanitizeDiagnosticStatus(entry.status),
+    requestedServiceTier: entry.requestedServiceTier === 'priority' ? 'priority' : null,
+    reportedServiceTier: sanitizeServiceTier(entry.reportedServiceTier),
   });
   if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
 }

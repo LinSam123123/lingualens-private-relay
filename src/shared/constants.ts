@@ -79,6 +79,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
       maxPageRequests: 100,
       retryGatewayErrors: false,
       streamTranslations: false,
+      fastMode: false,
     },
   ],
   chunkingMode: 'quality',

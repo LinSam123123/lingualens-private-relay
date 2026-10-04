@@ -1,4 +1,5 @@
-import type { RelayProtocol } from './types';
+import type { RelayProtocol, ReportedServiceTier } from './types';
+import { extractServiceTier } from './relay-protocol.ts';
 
 /** Output rule for streaming translation. Not Structured Outputs. */
 export const JSONL_OUTPUT_RULES =
@@ -74,6 +75,7 @@ export class RelayEventStreamParser {
   private sawText = false;
   private stopped = false;
   private bytes = 0;
+  private tier: ReportedServiceTier | null = null;
 
   constructor(protocol: RelayProtocol, expectedIds: Iterable<string>) {
     this.protocol = protocol;
@@ -82,6 +84,10 @@ export class RelayEventStreamParser {
 
   get acceptedIds(): string[] {
     return [...this.seen];
+  }
+
+  get reportedServiceTier(): ReportedServiceTier | null {
+    return this.tier;
   }
 
   push(chunk: Uint8Array): StreamParserEvent[] {
@@ -158,6 +164,7 @@ export class RelayEventStreamParser {
   private onPayload(payload: unknown): StreamParserEvent[] {
     const record = asRecord(payload);
     if (!record) return [this.stop('unsafe', 'INVALID_RESPONSE')];
+    this.tier = extractServiceTier(record) ?? this.tier;
     if (record.error || record.type === 'error' || record.type === 'response.failed') {
       return [this.stop('provider-error', 'STREAM_PROVIDER_ERROR')];
     }

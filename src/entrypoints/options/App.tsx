@@ -400,6 +400,18 @@ export function App() {
               <button type="button" className="btn-secondary shrink-0" disabled={loadingModels || dirty} onClick={() => void refreshModels()}>{loadingModels ? t('options.loading') : t('options.refreshModels')}</button>
             </div>
           </Field>
+          <label className="mt-4 flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={relay.fastMode === true}
+              onChange={(event) => updateRelay({ fastMode: event.target.checked })}
+            />
+            <span>
+              <strong className="block text-sm text-gray-700">{t('options.fastMode')}</strong>
+              <span className="block text-xs text-amber-700 mt-1">{t('options.fastModeWarning')}</span>
+            </span>
+          </label>
           <div className="flex flex-wrap gap-2 mt-4">
             <button type="button" className="btn-secondary" disabled={testing || dirty} onClick={() => void testConnection()}>{testing ? t('options.testing') : t('options.testConnection')}</button>
             <button type="button" className="btn-secondary" onClick={() => void clearCache()}>{t('options.clearCache')}</button>
@@ -449,6 +461,8 @@ export function App() {
                       <th className="pr-2 py-1 font-medium">{t('options.diagFirstItem')}</th>
                       <th className="pr-2 py-1 font-medium">{t('options.diagFirstWrite')}</th>
                       <th className="pr-2 py-1 font-medium">{t('options.diagTotal')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.requestedServiceTier')}</th>
+                      <th className="pr-2 py-1 font-medium">{t('options.reportedServiceTier')}</th>
                       <th className="py-1 font-medium">{t('options.diagStatus')}</th>
                     </tr>
                   </thead>
@@ -467,6 +481,8 @@ export function App() {
                         <td className="pr-2 py-1">{entry.firstItemMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.firstPageWriteMs ?? '—'}</td>
                         <td className="pr-2 py-1">{entry.totalMs ?? '—'}</td>
+                        <td className="pr-2 py-1">{entry.requestedServiceTier ?? (entry.attempt === 0 ? '—' : t('options.tierOmitted'))}</td>
+                        <td className="pr-2 py-1">{entry.reportedServiceTier ?? (entry.attempt === 0 ? '—' : t('options.tierNotReported'))}</td>
                         <td className="py-1">{entry.status}</td>
                       </tr>
                     ))}
@@ -569,6 +585,21 @@ function Diagnostic({ result }: { result: ConnectionTestResult }) {
   ];
   const message = result.message === 'REDIRECT_NOT_ALLOWED'
     ? t('options.redirectNotAllowed')
-    : result.message;
-  return <div className="mt-4 border border-gray-200 rounded-md p-3 text-sm"><div className="grid grid-cols-2 gap-2">{rows.map(([label, value]) => <div key={String(label)} className="flex justify-between gap-2"><span className="text-gray-500">{label}</span><strong className={value === true ? 'text-green-700' : value === false ? 'text-red-700' : 'text-gray-500'}>{value === null ? 'N/A' : value ? 'OK' : 'Failed'}</strong></div>)}</div><p className="mt-3 text-gray-700 break-words">HTTP {result.httpStatus ?? 'N/A'}: {message}</p>{result.sample && <p className="mt-1 text-gray-500 break-words">{result.sample}</p>}</div>;
+    : result.message === 'FAST_MODE_REJECTED'
+      ? t('options.fastModeRejected')
+      : result.message;
+  return (
+    <div className="mt-4 border border-gray-200 rounded-md p-3 text-sm">
+      <div className="grid grid-cols-2 gap-2">{rows.map(([label, value]) => <div key={String(label)} className="flex justify-between gap-2"><span className="text-gray-500">{label}</span><strong className={value === true ? 'text-green-700' : value === false ? 'text-red-700' : 'text-gray-500'}>{value === null ? 'N/A' : value ? 'OK' : 'Failed'}</strong></div>)}</div>
+      <p className="mt-3 text-gray-700 break-words">HTTP {result.httpStatus ?? 'N/A'}: {message}</p>
+      <dl className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div><dt className="text-gray-500">{t('options.requestedServiceTier')}</dt><dd>{result.requestedServiceTier ?? t('options.tierOmitted')}</dd></div>
+        <div><dt className="text-gray-500">{t('options.reportedServiceTier')}</dt><dd>{result.reportedServiceTier ?? t('options.tierNotReported')}</dd></div>
+      </dl>
+      {result.requestedServiceTier === 'priority' && result.reportedServiceTier !== 'priority' && (
+        <p className="mt-2 text-amber-700">{t('options.priorityNotConfirmed')}</p>
+      )}
+      {result.sample && <p className="mt-1 text-gray-500 break-words">{result.sample}</p>}
+    </div>
+  );
 }

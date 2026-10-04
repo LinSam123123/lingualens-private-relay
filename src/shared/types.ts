@@ -36,9 +36,12 @@ export interface ProviderConfig {
   retryGatewayErrors?: boolean;
   /** When true, page batches use SSE JSONL and apply complete items before the batch ends. */
   streamTranslations?: boolean;
+  /** Explicit opt-in to relay priority processing; never a concurrency multiplier. */
+  fastMode?: boolean;
 }
 
 export type RelayProtocol = 'chat-completions' | 'responses';
+export type ReportedServiceTier = 'auto' | 'default' | 'flex' | 'scale' | 'priority' | 'ultrafast';
 
 export interface ConnectionTestResult {
   reachable: boolean;
@@ -48,6 +51,8 @@ export interface ConnectionTestResult {
   httpStatus: number | null;
   message: string;
   sample?: string;
+  requestedServiceTier?: 'priority' | null;
+  reportedServiceTier?: ReportedServiceTier | null;
 }
 
 export interface ModelListResult {

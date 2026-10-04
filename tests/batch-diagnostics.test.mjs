@@ -57,7 +57,7 @@ test('keeps a capped in-memory ring of sanitized batch timings', () => {
   assert.equal(listed.every((entry) => Object.keys(entry).join(',') === [
     'taskId', 'requestId', 'attempt', 'itemCount', 'sourceChars', 'queuedMs',
     'headerMs', 'bodyMs', 'parseMs', 'firstTextDeltaMs', 'firstItemMs', 'firstPageWriteMs',
-    'totalMs', 'status',
+    'totalMs', 'status', 'requestedServiceTier', 'reportedServiceTier',
   ].join(',')), true);
 });
 

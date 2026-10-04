@@ -491,6 +491,8 @@ export class TranslationScheduler {
       firstPageWriteMs: null,
       totalMs: details.totalMs,
       status: sanitizeDiagnosticStatus(details.status),
+      requestedServiceTier: details.timing?.requestedServiceTier ?? null,
+      reportedServiceTier: details.timing?.reportedServiceTier ?? null,
     });
   }
 

@@ -1,4 +1,25 @@
-import type { RelayProtocol } from './types';
+import type { RelayProtocol, ReportedServiceTier } from './types';
+
+export function sanitizeServiceTier(value: unknown): ReportedServiceTier | null {
+  switch (value) {
+    case 'auto': case 'default': case 'flex': case 'scale': case 'priority': case 'ultrafast':
+      return value;
+    default:
+      return null;
+  }
+}
+
+/** Read API metadata only, never model output or an arbitrary error string. */
+export function extractServiceTier(data: unknown): ReportedServiceTier | null {
+  if (!data || typeof data !== 'object') return null;
+  const record = data as Record<string, unknown>;
+  const direct = sanitizeServiceTier(record.service_tier);
+  if (direct) return direct;
+  const response = record.response;
+  return response && typeof response === 'object'
+    ? sanitizeServiceTier((response as Record<string, unknown>).service_tier)
+    : null;
+}
 
 export interface TranslationEnvelopeItem {
   id: string;
@@ -86,6 +107,7 @@ export function buildRelayBody(
   inputJson: string,
   temperature: number,
   stream = false,
+  fastMode = false,
 ): Record<string, unknown> {
   if (protocol === 'responses') {
     return {
@@ -94,6 +116,7 @@ export function buildRelayBody(
       input: inputJson,
       temperature,
       ...(stream ? { stream: true } : {}),
+      ...(fastMode === true ? { service_tier: 'priority' } : {}),
     };
   }
   return {
@@ -104,5 +127,6 @@ export function buildRelayBody(
     ],
     temperature,
     stream,
+    ...(fastMode === true ? { service_tier: 'priority' } : {}),
   };
 }

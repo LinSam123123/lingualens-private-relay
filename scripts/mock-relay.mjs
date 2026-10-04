@@ -208,6 +208,7 @@ function translatedItems(body) {
 
 function success(response, protocol, body) {
   const items = translatedItems(body);
+  const metadata = body?.service_tier === 'priority' ? { service_tier: 'priority' } : {};
   if (body?.stream === true) {
     response.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache' });
     const writeLine = (line) => {
@@ -219,9 +220,9 @@ function success(response, protocol, body) {
     };
     const finish = () => {
       if (protocol === 'responses') {
-        response.write(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`);
+        response.write(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', ...metadata } })}\n\n`);
       } else {
-        response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
+        response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], ...metadata })}\n\n`);
         response.write('data: [DONE]\n\n');
       }
       response.end();
@@ -246,8 +247,8 @@ function success(response, protocol, body) {
     return;
   }
   const content = JSON.stringify({ items });
-  if (protocol === 'responses') json(response, 200, { output_text: content });
-  else json(response, 200, { choices: [{ message: { content } }] });
+  if (protocol === 'responses') json(response, 200, { output_text: content, ...metadata });
+  else json(response, 200, { choices: [{ message: { content } }], ...metadata });
 }
 
 const server = http.createServer((request, response) => {
@@ -343,6 +344,10 @@ const server = http.createServer((request, response) => {
     }
     let body;
     try { body = JSON.parse(raw); } catch { json(response, 400, { error: 'invalid JSON' }); return; }
+    if (scenario === 'priority-rejected' && body.service_tier === 'priority') {
+      json(response, 422, { error: 'service_tier priority is not supported by this mock relay' });
+      return;
+    }
     if (scenario === 'slow') {
       const timer = setTimeout(() => success(response, endpoint === 'responses' ? 'responses' : 'chat-completions', body), 1_500);
       timer.unref();
@@ -356,7 +361,7 @@ server.listen(port, '127.0.0.1', async () => {
   const address = server.address();
   const activePort = typeof address === 'object' && address ? address.port : port;
   console.log(`Mock relay listening on http://127.0.0.1:${activePort}/ok/v1`);
-  console.log('Scenarios: ok, slow, redirect, rate-limit, gateway, header-rejected, timeout, disconnect');
+  console.log('Scenarios: ok, slow, redirect, rate-limit, gateway, header-rejected, priority-rejected, timeout, disconnect');
   if (!selfTest) return;
 
   const base = `http://127.0.0.1:${activePort}`;
@@ -394,6 +399,24 @@ server.listen(port, '127.0.0.1', async () => {
       method: 'POST', headers, body: JSON.stringify({ input }),
     })).json();
     assert.match(responses.output_text, /item-1/);
+
+    for (const protocol of ['chat/completions', 'responses']) {
+      const body = protocol === 'responses'
+        ? { input, service_tier: 'priority' }
+        : { messages: [{ role: 'user', content: input }], service_tier: 'priority' };
+      const fast = await (await fetch(`${base}/ok/v1/${protocol}`, {
+        method: 'POST', headers, body: JSON.stringify(body),
+      })).json();
+      assert.equal(fast.service_tier, 'priority');
+      const stream = await (await fetch(`${base}/ok/v1/${protocol}`, {
+        method: 'POST', headers, body: JSON.stringify({ ...body, stream: true }),
+      })).text();
+      assert.match(stream, /"service_tier":"priority"/);
+      const rejected = await fetch(`${base}/priority-rejected/v1/${protocol}`, {
+        method: 'POST', headers, body: JSON.stringify(body),
+      });
+      assert.equal(rejected.status, 422);
+    }
 
     const streamed = await fetch(`${base}/ok/v1/chat/completions`, {
       method: 'POST',

@@ -4,12 +4,14 @@ import type {
   ModelListResult,
   ProviderConfig,
   RelayProtocol,
+  ReportedServiceTier,
   TranslateRequest,
   TranslateResult,
 } from '../shared/types';
 import {
   buildRelayBody,
   extractRelayText,
+  extractServiceTier,
   parseTranslationEnvelope,
   type TranslationEnvelopeItem,
 } from '../shared/relay-protocol.ts';
@@ -32,6 +34,8 @@ export interface RelayFetchTiming {
   firstTextDeltaMs?: number | null;
   /** Dispatch to the first accepted JSONL item. Not page DOM write time. */
   firstItemMs?: number | null;
+  requestedServiceTier?: 'priority' | null;
+  reportedServiceTier?: ReportedServiceTier | null;
 }
 
 export class RelayHttpError extends Error {
@@ -51,9 +55,12 @@ function protocolOf(config: ProviderConfig): RelayProtocol {
   return config.protocol === 'responses' ? 'responses' : 'chat-completions';
 }
 
-function statusCode(status: number, body: string): string {
+function statusCode(status: number, body: string, fastMode = false): string {
   if ([400, 403, 422].includes(status) && /x-translation-request-id|translation.request.id/i.test(body)) {
     return 'REQUEST_ID_HEADER_REJECTED';
+  }
+  if (fastMode && [400, 403, 422].includes(status) && /service[_ -]?tier|priority (?:processing|tier)/i.test(body)) {
+    return 'FAST_MODE_REJECTED';
   }
   const known: Record<number, string> = {
     400: 'BAD_REQUEST',
@@ -103,7 +110,7 @@ export class RelayAdapter extends BaseProvider {
     if (!response.ok) {
       throw new RelayHttpError(
         response.status,
-        statusCode(response.status, raw.slice(0, 512)),
+        statusCode(response.status, raw.slice(0, 512), this.config.fastMode === true),
         response.headers.get('Retry-After'),
       );
     }
@@ -129,6 +136,10 @@ export class RelayAdapter extends BaseProvider {
   ): Promise<Map<string, string>> {
     validateBaseUrl(this.config.baseUrl);
     if (!this.config.model?.trim()) throw new Error('MODEL_REQUIRED');
+    if (options.timing) {
+      options.timing.requestedServiceTier = this.config.fastMode === true ? 'priority' : null;
+      options.timing.reportedServiceTier = null;
+    }
     const prompt = (this.config.systemPrompt
       ? `${this.config.systemPrompt}\n\n${RELAY_SYSTEM_PROMPT}`
       : RELAY_SYSTEM_PROMPT)
@@ -155,6 +166,8 @@ export class RelayAdapter extends BaseProvider {
             prompt,
             inputJson,
             this.config.temperature ?? 0.2,
+            false,
+            this.config.fastMode === true,
           )),
           redirect: options.redirect ?? 'error',
           signal: options.signal ?? AbortSignal.timeout(this.config.timeoutMs ?? 25_000),
@@ -169,6 +182,7 @@ export class RelayAdapter extends BaseProvider {
       throw new Error('REDIRECT_NOT_ALLOWED');
     }
     const data = await this.readTranslateResponse(response, options.timing);
+    if (options.timing) options.timing.reportedServiceTier = extractServiceTier(data);
     const parseStart = performance.now();
     try {
       const output = extractRelayText(data, this.protocol);
@@ -197,6 +211,10 @@ export class RelayAdapter extends BaseProvider {
   ): AsyncGenerator<StreamParserEvent> {
     validateBaseUrl(this.config.baseUrl);
     if (!this.config.model?.trim()) throw new Error('MODEL_REQUIRED');
+    if (options.timing) {
+      options.timing.requestedServiceTier = this.config.fastMode === true ? 'priority' : null;
+      options.timing.reportedServiceTier = null;
+    }
     const prompt = (this.config.systemPrompt
       ? `${this.config.systemPrompt}\n\n${RELAY_STREAM_SYSTEM_PROMPT}`
       : RELAY_STREAM_SYSTEM_PROMPT)
@@ -225,6 +243,7 @@ export class RelayAdapter extends BaseProvider {
             inputJson,
             this.config.temperature ?? 0.2,
             true,
+            this.config.fastMode === true,
           )),
           redirect: 'error',
           signal: options.signal,
@@ -244,7 +263,7 @@ export class RelayAdapter extends BaseProvider {
       if (options.timing) options.timing.bodyMs = Math.round(performance.now() - bodyStart);
       throw new RelayHttpError(
         response.status,
-        statusCode(response.status, body),
+        statusCode(response.status, body, this.config.fastMode === true),
         response.headers.get('Retry-After'),
       );
     }
@@ -267,6 +286,7 @@ export class RelayAdapter extends BaseProvider {
         if (chunk.done) break;
         const parsedAt = performance.now();
         const events = parser.push(chunk.value);
+        if (options.timing) options.timing.reportedServiceTier = parser.reportedServiceTier;
         parseMs += performance.now() - parsedAt;
         yield* events;
         if (events.some((event) => event.type === 'terminal')) {
@@ -277,6 +297,7 @@ export class RelayAdapter extends BaseProvider {
       if (!sawTerminal) {
         const parsedAt = performance.now();
         const events = parser.finish();
+        if (options.timing) options.timing.reportedServiceTier = parser.reportedServiceTier;
         parseMs += performance.now() - parsedAt;
         yield* events;
       }
@@ -334,6 +355,15 @@ export class RelayAdapter extends BaseProvider {
   }
 
   async testConnectionDetailed(): Promise<ConnectionTestResult> {
+    const timing: RelayFetchTiming = {
+      headerMs: null, bodyMs: null, parseMs: null,
+      requestedServiceTier: this.config.fastMode === true ? 'priority' : null,
+      reportedServiceTier: null,
+    };
+    const serviceTierStatus = () => ({
+      requestedServiceTier: timing.requestedServiceTier ?? null,
+      reportedServiceTier: timing.reportedServiceTier ?? null,
+    });
     try {
       let models: string[] = [];
       let modelStatus: number | null = null;
@@ -351,6 +381,7 @@ export class RelayAdapter extends BaseProvider {
             formatCompatible: false,
             httpStatus: null,
             message: 'REDIRECT_NOT_ALLOWED',
+            ...serviceTierStatus(),
           };
         }
       }
@@ -358,7 +389,7 @@ export class RelayAdapter extends BaseProvider {
       const translated = await this.translateItems(
         [{ id: 'connection-test', text: 'Hello' }],
         { sourceLang: 'en', targetLang: 'zh-CN' },
-        { redirect: 'manual', requestId: crypto.randomUUID() },
+        { redirect: 'manual', requestId: crypto.randomUUID(), timing },
       );
       const sample = translated.get('connection-test');
       return {
@@ -369,6 +400,7 @@ export class RelayAdapter extends BaseProvider {
         httpStatus: modelStatus ?? 200,
         message: sample ? 'CONNECTION_OK' : 'RESPONSE_FORMAT_INCOMPATIBLE',
         ...(sample ? { sample } : {}),
+        ...serviceTierStatus(),
       };
     } catch (error) {
       if (error instanceof RelayHttpError) {
@@ -379,6 +411,7 @@ export class RelayAdapter extends BaseProvider {
           formatCompatible: false,
           httpStatus: error.status,
           message: error.code,
+          ...serviceTierStatus(),
         };
       }
       const message = error instanceof Error ? error.message : 'CONNECTION_FAILED';
@@ -389,6 +422,7 @@ export class RelayAdapter extends BaseProvider {
         formatCompatible: false,
         httpStatus: null,
         message: message === 'Failed to fetch' ? 'NETWORK_OR_HEADER_ERROR' : message,
+        ...serviceTierStatus(),
       };
     }
   }

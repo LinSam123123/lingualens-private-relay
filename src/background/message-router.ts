@@ -94,7 +94,7 @@ function normalizeSettings(settings: AppSettings): AppSettings {
     ...settings,
     defaultProvider: PRIVATE_RELAY_PROVIDER_ID,
     fallbackProviders: [],
-    providers: [{ ...relay, id: PRIVATE_RELAY_PROVIDER_ID, type: 'relay', enabled: true }],
+    providers: [{ ...relay, id: PRIVATE_RELAY_PROVIDER_ID, type: 'relay', enabled: true, fastMode: relay.fastMode === true }],
     keyStorageMode: normalizeSecretStorageMode(settings.keyStorageMode, {
       local: canUseLocalKeyStorage(),
       persistent: canUsePersistentKeyStorage(),
@@ -109,6 +109,7 @@ function translationConfigFingerprint(settings: AppSettings): string {
     model: relay?.model ?? '',
     protocol: relay?.protocol ?? 'chat-completions',
     temperature: relay?.temperature ?? 0.2,
+    fastMode: relay?.fastMode === true,
     promptTemplate: settings.promptTemplate ?? '',
   });
 }

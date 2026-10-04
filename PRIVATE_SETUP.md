@@ -81,6 +81,8 @@ Firefox 不支持 `storage.local.setAccessLevel`，因此仍拒绝用未受保�
 
 ## 4. 默认限制
 
+快速模式默认关闭。需要时在“模型与诊断”勾选“快速模式（Priority）”并保存；请求会携带 `service_tier: "priority"`，可能增加费用，是否加速及计费倍率取决于中转站。连接测试也会请求该层级。详见 [docs/FAST_MODE.md](docs/FAST_MODE.md)。
+
 - 超时：25 秒
 - 并发：2，可设为 1 至 4
 - 单页字符预算：100,000
