@@ -198,6 +198,15 @@
     "close": "Close"
   },
   "statusBar": {
+    "failure": {
+      "budget": "{{count}} items: page budget reached. Retrying cannot replenish it.",
+      "missing": "{{count}} items: the model omitted translations. Retry sends only unfinished items.",
+      "format": "{{count}} items: incomplete or invalid output. Check batch diagnostics and the model output format.",
+      "rate": "{{count}} items: relay rate limit. Wait before retrying or lower concurrency.",
+      "configuration": "{{count}} items: check the Key, model, permissions and relay settings.",
+      "unknown": "{{count}} items: the request outcome is unknown. Manual retry may incur another charge.",
+      "other": "{{count}} items: translation failed. Check batch diagnostics in settings for the error code."
+    },
     "listening": "Watching for new content ({{done}}/{{total}})",
     "channelDisconnected": "Translation channel interrupted",
     "paused": "Automatic translation paused",

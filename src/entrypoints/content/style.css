@@ -284,14 +284,28 @@
 
 /* Page translation status bar */
 .st-status-bar {
-  @apply fixed top-0 left-0 right-0 flex items-center gap-[12px] px-[16px] py-[8px]
-         border-b border-gray-200 shadow-sm;
+  @apply flex flex-col gap-[12px] p-[12px] border border-gray-200 shadow-sm;
+  position: absolute;
+  right: 54px;
+  width: min(340px, calc(100vw - 78px));
+  border-radius: 8px;
   background-color: #ffffff;
   z-index: 2147483646;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 13px;
   min-height: 40px;
-  overflow-x: auto;
+  overflow: auto;
+  color: #374151;
+  letter-spacing: 0;
+}
+
+.st-page-dock {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  width: 44px;
+  height: 44px;
+  z-index: 2147483646;
+  pointer-events: auto;
 }
 
 .st-status-left {
@@ -309,8 +323,8 @@
 .st-status-collapsed-mark {
   display: block;
   line-height: 0;
-  border-radius: 10px;
-  padding: 5px;
+  border-radius: 8px;
+  padding: 10px;
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(8px);
   box-shadow:
@@ -327,7 +341,9 @@
 }
 
 .st-status-text {
-  @apply text-gray-600 whitespace-nowrap;
+  @apply text-gray-600;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .st-status-err {
@@ -344,6 +360,8 @@
 
 .st-status-progress {
   @apply flex-1 h-[6px] bg-gray-100 rounded-full overflow-hidden min-w-[80px] max-w-[300px];
+  flex: none;
+  width: 100%;
 }
 
 .st-status-progress-fill {
@@ -352,14 +370,22 @@
 }
 
 .st-status-actions {
-  @apply flex items-center gap-[8px] ml-auto shrink-0;
+  @apply flex flex-wrap items-center gap-[8px];
 }
 
 .st-status-btn {
   @apply px-[12px] py-[4px] rounded-md border border-gray-200
          text-gray-600 hover:bg-gray-50 cursor-pointer transition-colors;
   background: white;
+  min-height: 44px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
+
+.st-status-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.st-failure-summary { font-size: 12px; color: #9a3412; overflow-wrap: anywhere; }
+.st-failure-summary p { margin: 0 0 6px; }
+.st-page-dock button:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
 
 .st-status-btn-warn {
   @apply text-red-500 border-red-200 hover:bg-red-50;
@@ -376,13 +402,16 @@
   border: none;
   background: none;
   padding: 0;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 /* Collapsed floating control — icon-first, soft squircle (not a white circle) */
 .st-status-collapsed {
-  position: fixed;
-  top: 12px;
-  right: 16px;
+  position: relative;
+  width: 44px;
+  height: 44px;
+  touch-action: none;
   z-index: 2147483646;
   display: block;
   cursor: pointer;
@@ -423,3 +452,5 @@
   background: linear-gradient(135deg, #3b82f6, #6366f1);
   box-shadow: 0 1px 4px rgba(59, 130, 246, 0.35);
 }
+
+.st-status-collapsed-badge.st-dock-error { background: #b45309; }

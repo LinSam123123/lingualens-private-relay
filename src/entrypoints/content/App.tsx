@@ -174,7 +174,7 @@ export function ContentApp({ onReady }: Props) {
   const [pageProgress, setPageProgress] = useState<TranslateProgress | null>(null);
   const [displayMode, setDisplayMode] = useState<DisplayMode>('bilingual');
   const [pagePaused, setPagePaused] = useState(false);
-  const [statusCollapsed, setStatusCollapsed] = useState(false);
+  const [statusCollapsed, setStatusCollapsed] = useState(true);
 
   const [toastText, setToastText] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -396,6 +396,7 @@ export function ContentApp({ onReady }: Props) {
   }, []);
 
   const retryPageItems = async (kind: 'failed' | 'unknown') => {
+    if (engineRef.current.running || pageProgressRef.current?.budgetExhausted) return;
     if (kind === 'unknown' && !window.confirm(t('statusBar.retryUnknownWarning'))) return;
     const epoch = autoPageEpoch.current;
     applyPageTranslatePhase('running');
@@ -420,16 +421,6 @@ export function ContentApp({ onReady }: Props) {
       type: 'PAGE_AUTO_MODE', payload: { documentId: engineRef.current.documentSessionId, displayMode: newMode },
     }).catch(() => undefined);
   }, [displayMode]);
-
-  const STATUS_BAR_HEIGHT = 40;
-  useEffect(() => {
-    const visible = pageTranslatePhase !== 'idle' && !statusCollapsed;
-    if (visible) {
-      const original = document.documentElement.style.paddingTop;
-      document.documentElement.style.paddingTop = `${STATUS_BAR_HEIGHT}px`;
-      return () => { document.documentElement.style.paddingTop = original; };
-    }
-  }, [pageTranslatePhase, statusCollapsed]);
 
   useLayoutEffect(() => {
     if (mode !== 'panel') return;
@@ -714,6 +705,7 @@ export function ContentApp({ onReady }: Props) {
     <>
       {/* Page translation status bar */}
       <StatusBar
+        onStart={() => void startPageTranslation()}
         progress={pageProgress}
         running={pageTranslatePhase === 'running' && (pageProgress?.pending ?? 0) > 0}
         listening={engineRef.current.listening}
