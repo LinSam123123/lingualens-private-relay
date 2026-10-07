@@ -18,6 +18,7 @@ import {
 } from '../../shared/stream-delivery.ts';
 import { NodeRevisions } from './node-revisions.ts';
 import { DynamicPageObserver, nearViewport } from './dynamic-observer.ts';
+import { failureKind, type FailureKind } from './failure-summary.ts';
 
 export type DisplayMode = 'replace' | 'bilingual';
 
@@ -46,6 +47,7 @@ export interface TranslateProgress {
   listening?: boolean;
   budgetExhausted?: boolean;
   channelDisconnected?: boolean;
+  failures?: Array<{ kind: FailureKind; count: number }>;
 }
 
 type ProgressCallback = (progress: TranslateProgress) => void;
@@ -341,17 +343,23 @@ export class PageTranslateEngine {
     onProgress: ProgressCallback,
     status: 'failed' | 'interrupted/unknown',
   ): Promise<void> {
+    if (this.isRunning || this.budgetExhausted) return;
     const ids = [...this.itemFailures.values()]
-      .filter((item) => item.status === status)
+      .filter((item) => item.status === status && this.currentNetworkItem(item.id))
       .map((item) => item.id);
-    if (ids.length === 0) return;
+    if (ids.length === 0) { this.emitProgress(); return; }
     // Same request id, fewer items. This is not an idempotent replay.
     const retryBatches = this.batches
       .map((batch) => ({ ...batch, items: batch.items.filter((item) => ids.includes(item.id)) }))
       .filter((batch) => batch.items.length > 0);
     this.isCancelled = false;
+    this.streamClosed = false;
+    this.isPaused = false;
     this.portLost = false;
     this.isRunning = true;
+    this.progressListener = onProgress;
+    for (const id of ids) this.itemFailures.delete(id);
+    this.emitProgress();
     const identity = this.currentIdentity();
     await this.control('resume');
     if (!this.isCurrent(identity)) return;
@@ -698,23 +706,33 @@ export class PageTranslateEngine {
   }
 
   private recountProgress(): void {
-    const scheduledIds = this.batches.flatMap((batch) => batch.items.map((item) => item.id));
+    const scheduledItems = this.batches.flatMap((batch) => batch.items);
     let done = 0;
     let errors = 0;
     let unknown = 0;
     let cancelled = 0;
-    for (const id of scheduledIds) {
+    const failures = new Map<FailureKind, number>();
+    for (const network of scheduledItems) {
+      const id = network.id;
       if (this.translatedChunks.has(id)) done++;
       else {
+        const dom = this.domById.get(network.domItemId);
+        if (!dom || !this.revisions.current(dom)) {
+          this.itemFailures.set(id, { id, status: 'cancelled', error: 'NODE_REVISED' });
+        }
         const failure = this.itemFailures.get(id);
         if (failure?.status === 'interrupted/unknown') unknown++;
         else if (failure?.status === 'cancelled') cancelled++;
         else if (failure) errors++;
+        if (failure && failure.status !== 'cancelled') {
+          const kind = failureKind(failure.error, failure.status);
+          failures.set(kind, (failures.get(kind) ?? 0) + 1);
+        }
       }
     }
     this.progress = {
-      total: scheduledIds.length,
-      pending: Math.max(0, scheduledIds.length - done - errors - unknown - cancelled),
+      total: scheduledItems.length,
+      pending: Math.max(0, scheduledItems.length - done - errors - unknown - cancelled),
       done,
       errors,
       unknown,
@@ -723,6 +741,7 @@ export class PageTranslateEngine {
       listening: this.listening,
       budgetExhausted: this.budgetExhausted,
       channelDisconnected: this.portLost,
+      failures: [...failures].map(([kind, count]) => ({ kind, count })),
     };
   }
 

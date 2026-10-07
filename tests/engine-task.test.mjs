@@ -148,6 +148,65 @@ async function until(fn) {
   throw new Error('timed out');
 }
 
+test('failed items can be retried after stopping, with progress and one dispatch per click sequence', async () => {
+  const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
+  const node = textNode('A failed paragraph can still be translated');
+  const harness = installBrowser(() => ({ success: false }));
+  const engine = new PageTranslateEngine();
+  let progress;
+  const report = (value) => { progress = value; };
+  const first = engine.start(options, report);
+  await until(() => harness.batchCalls.length === 1);
+  const payload = harness.batchCalls[0].message.payload;
+  const failed = batchResult(payload, '', 'failed');
+  failed.data.items[0].error = 'RESPONSE_MISSING_ITEM';
+  harness.batchCalls[0].resolve(failed);
+  await first;
+  assert.deepEqual(progress.failures, [{ kind: 'missing', count: 1 }]);
+  await engine.cancel();
+  const retry = engine.retryFailed(options, report);
+  await engine.retryFailed(options, report);
+  await until(() => harness.batchCalls.length === 2);
+  assert.equal(progress.pending, 1);
+  assert.equal(progress.errors, 0);
+  assert.equal(harness.ports.length, 2);
+  const next = harness.batchCalls[1].message.payload;
+  assert.equal(next.requestId, payload.requestId);
+  assert.equal(next.manualRetryFailed, true);
+  assert.deepEqual(next.items, payload.items);
+  harness.batchCalls[1].resolve(batchResult(next, 'RETRIED'));
+  await retry;
+  assert.equal(node.textContent, 'RETRIED');
+  assert.equal(progress.done, 1);
+  assert.equal(progress.errors, 0);
+  assert.equal(harness.batchCalls.length, 2);
+});
+
+test('manual retry does not resubmit removed or website-revised text or exhausted budgets', async () => {
+  const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
+  for (const scenario of ['revised', 'removed', 'budget']) {
+    const node = textNode('Original page paragraph');
+    const harness = installBrowser(() => ({ success: false }));
+    const engine = new PageTranslateEngine();
+    let progress;
+    const first = engine.start(options, (value) => { progress = value; });
+    await until(() => harness.batchCalls.length === 1);
+    const failed = batchResult(harness.batchCalls[0].message.payload, '', 'failed');
+    if (scenario === 'budget') failed.data.items[0].error = 'PAGE_BUDGET_EXCEEDED';
+    harness.batchCalls[0].resolve(failed);
+    await first;
+    if (scenario === 'revised') node.textContent = 'Website changed this paragraph';
+    if (scenario === 'removed') node.isConnected = false;
+    await engine.retryFailed(options, (value) => { progress = value; });
+    assert.equal(harness.batchCalls.length, 1, scenario);
+    if (scenario === 'budget') assert.equal(progress.budgetExhausted, true);
+    else {
+      assert.equal(progress.errors, 0, scenario);
+      assert.equal(progress.cancelled, 1, scenario);
+    }
+  }
+});
+
 test('a late success, failure, or recovery from the previous task cannot change the new task', async () => {
   const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
   const cases = [
