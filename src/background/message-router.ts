@@ -1,5 +1,5 @@
 import { ProviderManager } from '../providers/manager';
-import { getCached, setCache, clearCache as clearTranslationCache, getCacheStats } from './cache';
+import { getCached, setCache, clearCache as clearTranslationCache, getCacheStats, cacheGeneration } from './cache';
 import type {
   AppSettings,
   ConnectionTestResult,
@@ -200,6 +200,7 @@ async function translateWithProvider(
   providerConfig: ProviderConfig,
   promptTemplate?: string,
 ): Promise<TranslateResult> {
+  const cacheEpoch = cacheGeneration();
   const cached = await getCached(
     request.text, request.sourceLang, request.targetLang, providerConfig.id,
   );
@@ -214,7 +215,7 @@ async function translateWithProvider(
   const provider = providerManager.getProvider(config, { useCache: false });
   const result = await provider.translate(request);
 
-  await setCache(request.text, request.sourceLang, request.targetLang, config.id, result);
+  await setCache(request.text, request.sourceLang, request.targetLang, config.id, result, cacheEpoch);
 
   return result;
 }
@@ -296,6 +297,7 @@ async function handleTranslationBatch(
   frameId: number,
   sender: RuntimeSenderLike,
 ): Promise<TranslationBatchResult> {
+  const cacheEpoch = cacheGeneration();
   const { relay, config } = await configuredRelayRuntime();
   const cached = await Promise.all(request.items.map(async (item) => ({
     item,
@@ -331,7 +333,7 @@ async function handleTranslationBatch(
         translated: item.translated,
         provider: config.id,
         cached: false,
-      });
+      }, cacheEpoch);
     }));
   }
 
