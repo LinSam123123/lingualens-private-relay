@@ -199,6 +199,10 @@
   },
   "statusBar": {
     "failure": {
+      "channel": "{{count}} items: the extension background or task journal is unavailable. After an extension update, reload the page. Otherwise manually retry unfinished items.",
+      "timeout": "{{count}} items: the request exceeded its timeout. The relay may have processed it; manual retry may incur another charge.",
+      "page": "{{count}} items: the page navigation no longer matches this task. Refresh the page before starting again.",
+      "storage": "{{count}} items: extension session storage is full. Clear the translation cache in settings; do not clear the Key.",
       "budget": "{{count}} items: page budget reached. Retrying cannot replenish it.",
       "missing": "{{count}} items: the model omitted translations. Retry sends only unfinished items.",
       "format": "{{count}} items: incomplete or invalid output. Check batch diagnostics and the model output format.",

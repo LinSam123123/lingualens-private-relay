@@ -692,15 +692,20 @@ export class PageTranslateEngine {
       const key = `${this.taskId}:${meta.requestId}:${meta.attempt}`;
       if (this.reportedWriteKeys.has(key)) continue;
       this.reportedWriteKeys.add(key);
-      this.streamPort?.postMessage({
-        type: 'page-write',
-        taskId: this.taskId,
-        sessionId: this.sessionId,
-        generation: this.generation,
-        batchId: meta.batchId,
-        requestId: meta.requestId,
-        attempt: meta.attempt,
-      });
+      try {
+        this.streamPort?.postMessage({
+          type: 'page-write',
+          taskId: this.taskId,
+          sessionId: this.sessionId,
+          generation: this.generation,
+          batchId: meta.batchId,
+          requestId: meta.requestId,
+          attempt: meta.attempt,
+        });
+      } catch {
+        this.closeStreamPort();
+        this.portLost = true;
+      }
     }
     this.domRefresh.clear();
   }

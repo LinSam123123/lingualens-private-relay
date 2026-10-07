@@ -216,16 +216,22 @@ export function publishStreamItem(message: StreamItemMessage): boolean {
   if (typeof message.item?.id !== 'string' || typeof message.item.text !== 'string' || !message.item.text.trim()) {
     return false;
   }
-  entry.port.postMessage({
-    type: 'stream-item',
-    taskId: message.taskId,
-    sessionId: message.sessionId,
-    generation: message.generation,
-    batchId: message.batchId,
-    requestId: message.requestId,
-    attempt: message.attempt,
-    item: { id: message.item.id, text: message.item.text },
-  });
+  try {
+    entry.port.postMessage({
+      type: 'stream-item',
+      taskId: message.taskId,
+      sessionId: message.sessionId,
+      generation: message.generation,
+      batchId: message.batchId,
+      requestId: message.requestId,
+      attempt: message.attempt,
+      item: { id: message.item.id, text: message.item.text },
+    });
+  } catch {
+    // Delivery is best effort; a disconnected page must not turn model success into failure.
+    if (ports.get(portKey(message.tabId, message.frameId)) === entry) ports.delete(portKey(message.tabId, message.frameId));
+    return false;
+  }
   return true;
 }
 

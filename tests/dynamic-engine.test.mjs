@@ -7,6 +7,28 @@ import { getTaskJournal, initializeTaskJournal, removeOtherDocumentJournals, ens
 const options = { targetLang: 'zh-CN', sourceLang: 'en', displayMode: 'replace',
   maxCharsPerRequest: 500, maxItemsPerRequest: 5, maxPageChars: 100_000, maxPageRequests: 100, continuous: true };
 
+test('visible button labels translate without replacing buttons or including input and editable text', async () => {
+  const dom = mount();
+  const label = dom.add('Overview');
+  label.parentElement.tagName = 'BUTTON';
+  const button = label.parentElement;
+  button.getAttribute = (name) => name === 'role' ? 'tab' : null;
+  const input = dom.add('Private input value');
+  input.parentElement.tagName = 'INPUT';
+  const editable = dom.add('Editable draft');
+  editable.parentElement.isContentEditable = true;
+  const harness = browserHarness();
+  const engine = new PageTranslateEngine();
+  await engine.start(options, () => {});
+  assert.deepEqual(harness.calls.flat().map((item) => item.text), ['Overview']);
+  assert.equal(label.parentElement, button);
+  assert.equal(label.textContent, '[translated] Overview');
+  await engine.restore();
+  assert.equal(label.textContent, 'Overview');
+  assert.equal(input.textContent, 'Private input value');
+  assert.equal(editable.textContent, 'Editable draft');
+});
+
 function mount() {
   const mutations = [];
   const intersections = [];

@@ -75,6 +75,17 @@ test('page writes wait until every chunk of a DOM node is present', () => {
   assert.equal(shouldFlushDom(1, 0, true), true);
 });
 
+test('a port that throws before onDisconnect cannot fail a successful translation', async () => {
+  resetPagePortsForTests();
+  const port = fakePort({ id: 'ext', tab: { id: 7 }, frameId: 0 });
+  listenForPagePort(port, Promise.resolve('ext'));
+  await Promise.resolve();
+  port.emit({ type: 'bind', taskId: 'task-1', sessionId: 'session-1', generation: 2 });
+  port.postMessage = () => { throw new Error('Attempting to use a disconnected port object'); };
+  assert.equal(publishStreamItem(itemMessage()), false);
+  assert.equal(publishStreamItem(itemMessage()), false);
+});
+
 test('late, duplicate, unknown, and foreign tasks do not apply', () => {
   assert.equal(decideStreamApply(state(), itemMessage()), 'apply');
   assert.equal(decideStreamApply(state({ closed: true }), itemMessage()), 'ignore');

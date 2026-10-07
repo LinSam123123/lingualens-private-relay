@@ -4,7 +4,7 @@ const SKIP_TAGS = new Set([
   'SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'OBJECT', 'EMBED',
   'SVG', 'CANVAS', 'VIDEO', 'AUDIO', 'MAP', 'CODE', 'PRE',
   'KBD', 'SAMP', 'VAR', 'LINGUA-LENS', 'INPUT', 'TEXTAREA',
-  'SELECT', 'OPTION', 'OPTGROUP', 'DATALIST', 'BUTTON',
+  'SELECT', 'OPTION', 'OPTGROUP', 'DATALIST',
 ]);
 
 const SKIP_ROLES = new Set([

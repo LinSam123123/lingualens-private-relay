@@ -313,3 +313,20 @@ test('manual retry rebinds the stream port and shows an item before the final re
   await retry;
   assert.equal(node.textContent.includes('STREAM-TEXT') || node.textContent.includes('FINAL-TEXT'), true);
 });
+
+test('a lost page-write acknowledgement keeps successful DOM and avoids recovery resends', async () => {
+  const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
+  const node = textNode('The server already finished this paragraph');
+  const harness = installBrowser(() => { throw new Error('Recovery must not be called'); });
+  const engine = new PageTranslateEngine();
+  let progress;
+  const pending = engine.start(options, (p) => { progress = p; });
+  await until(() => harness.batchCalls.length === 1);
+  harness.ports[0].postMessage = () => { throw new Error('Disconnected port'); };
+  harness.batchCalls[0].resolve(batchResult(harness.batchCalls[0].message.payload, 'SUCCESS'));
+  await pending;
+  assert.equal(node.textContent, 'SUCCESS');
+  assert.equal(progress.done, 1);
+  assert.equal(progress.unknown, 0);
+  assert.equal(harness.batchCalls.length, 1);
+});
