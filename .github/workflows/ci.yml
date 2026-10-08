@@ -24,6 +24,7 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - run: npm audit --audit-level=low
       - run: npm run audit:repository
       - run: npm test
       - run: npx tsc --noEmit

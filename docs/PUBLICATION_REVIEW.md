@@ -1,36 +1,50 @@
 # GitHub publication review
 
-Date: 2026-10-08. Code baseline: `e7921ac`; review changes are in the working tree until explicitly committed. This review does not authorize a push, a signed release, or a history rewrite.
+Updated 2026-10-08. This is the separately prepared publication checkout, not the original private working directory. Nothing has been pushed to GitHub and no signed package was produced.
 
-## Result
+## Anonymized history
 
-No suspected live credential was found by the configured heuristic rules in the publishable working files or the current branch's 139 commits (808 unique historical file blobs). The two flagged test fixtures are deliberately fake and allowed only by exact file path and line hash; changed fixture values must be reviewed again. The scan also checks the Git index separately, so a staged secret cannot hide behind a clean working copy.
+- The source change sequence is retained. Author and committer names/emails now use `Contributor <contributor@example.invalid>`.
+- Co-author, sign-off, review and test attribution trailers are anonymized as well. Rewriting only the author header would leave those trailers exposed.
+- Private home-directory paths were replaced in historical text blobs and commit messages. Current documentation uses repository-relative paths.
+- The original upstream MIT license and its copyright notice are unchanged. That required attribution is intentionally not removed.
+- Rewritten commits have different hashes. References to old hashes in historical documentation identify the original private/upstream history, not necessarily a locally resolvable revision.
+- The publication checkout contains only `codex/public-release`, with no remote, original tags, private checkpoints or original-history backup refs. The original working directory remains the private recovery copy; do not publish it.
+- Local Git identity in this checkout is anonymous for future commits. This does not change the machine's global Git identity. A GitHub push still exposes the publishing GitHub account; repository-content anonymization does not make the account anonymous.
 
-The only binary asset in this branch history is the extension logo. It was visually inspected; there are no tracked account screenshots, ZIP/XPI packages or browser databases in this branch. Visual inspection and pattern matching cannot prove the absence of steganographic, obfuscated or unrecognized credentials. URL hosts were reviewed separately: upstream/provider/documentation links and loopback/example hosts remain; no personal Relay host was found in the current branch's history.
+The repository scanner checks worktree files, staged blobs, complete `HEAD` ancestry, and commit messages for credential patterns, personal email addresses and home-directory paths. It reports only locations and rule names, not matched values. Exact reviewed fake test lines are narrowly allowlisted by path and SHA-256. Example-domain and GitHub noreply email addresses are allowed. This is a heuristic check, not proof that all possible identifying information or secrets are absent.
 
-This is **not a clean security certification or a final public-release approval**. Resolve the following decisions before publishing.
+## Dependency remediation
 
-## Open decisions
+The original audit reported 27 vulnerable package entries: 1 low, 4 moderate, 19 high and 3 critical. The updated lockfile reports **zero vulnerabilities** with `npm audit --json` on 2026-10-08. No advisory suppression or `--force` dependency override was used.
 
-1. **Git metadata privacy.** History contains author email addresses and older documentation contains a local Windows username/path. Current documentation uses repository-relative paths, but previous commits still contain the originals. The owner must decide whether to publish that history as-is. No history was rewritten and the upstream MIT attribution was preserved. Changing Git's email now would affect only future commits. If anonymization is required, plan it separately without modifying upstream attribution or the daily checkout blindly.
-2. **Dependency findings.** `npm audit --json` reports 27 vulnerable package entries: 1 low, 4 moderate, 19 high and 3 critical. Critical entries are `shell-quote`, `fx-runner`, and `web-ext-run`; the latter entries include transitive impact, so these are not 27 independent exploitable extension bugs. Findings involve the build/development graph, including WXT, Vite, icon tooling and CSS tooling. This review did not establish exploitability of every advisory or absence of runtime exposure. Dependencies and lockfile were intentionally not upgraded. Keep development servers on loopback and do not process untrusted build inputs. Schedule a separate dependency remediation and regression pass before advertising a security-reviewed release.
-3. **Repository destination.** Only the upstream remote is configured. Choose the owner's GitHub repository URL and visibility before adding an `origin`. `package.json` still identifies the upstream repository; replace it with the actual fork URL once chosen. Do not invent a destination or push to upstream.
-4. **Browser coverage.** The latest Chrome installed-extension navigation/idle evidence is in `DYNAMIC_TRANSLATION.md`. Older Edge/Firefox smoke observations are not acceptance of all current changes. Real Firefox/Edge regression coverage is still incomplete. This preparation ran automated checks, not a new browser acceptance session.
+| Area | Change |
+| --- | --- |
+| Extension toolchain | WXT 0.20.26 to 0.21.4; obsolete web-ext-run / fx-runner / shell-quote chain removed |
+| Bundler | Vite resolved to 8.3.4 via supported peer range |
+| Icons | Existing auto-icons workflow retained, module updated to 1.1.2 with current Sharp |
+| CSS | PostCSS 8.5.29; Tailwind 3.4.19 to 4.3.3 with its official PostCSS adapter; obsolete braces / micromatch / fast-glob chain removed |
+| Tests | Explicit esbuild 0.28.2 dependency, replacing reliance on a former transitive installation |
+| Runtime requirement | Node.js 24+ for reproducible test/build commands |
 
-## Publication boundary
+Tailwind 3 had no patched compatible dependency chain for the outstanding advisories, so the CSS pipeline was migrated rather than hiding alerts. Shared CSS preserves earlier border, placeholder and pointer defaults. Renamed shrink, shadow and focus-outline utilities were updated. Existing layouts and translation logic were not redesigned. The obsolete empty Tailwind JS configuration was removed from both source and signing-source archive selection.
 
-Publish the reviewed source branch, not the whole working directory or `.git` directory.
+WXT now generates stricter TypeScript defaults. The project explicitly retains its previous `noUncheckedIndexedAccess: false` and `noImplicitOverride: false` baseline while keeping `strict: true`. Adopting additional strictness across the translation engine is separate work; the security update does not pretend to have completed that refactor.
 
-- Keep `LICENSE`, source, tests, lockfile, configuration, scripts and public documentation.
-- Exclude `.env*`, credentials, logs, HARs, browser profiles/databases, test screenshots, `node_modules`, `dev`, `dist`, `.output`, `.wxt`, ZIP/XPI artifacts, and the unrelated local subprojects already named in `.gitignore`.
-- Ignoring a path does not remove previously committed content. The history scan is a separate requirement.
-- Local `refs/codex/*` checkpoints contain unrelated work not present in the current branch ancestry. They are outside the approved publication scope. Do not use `git push --mirror`, `--all`, or indiscriminately push tags. An explicit selected-branch push is required after review and authorization.
-- Existing upstream tags describe upstream releases, not this edition. Do not publish a new signed `0.6.0` package or imply that the old signed build contains these changes.
-- The Firefox packaging script archives source from `HEAD` but builds the checkout. Only use it from a reviewed, clean, committed tree; this task did not run packaging, replace existing packages, or upload anything.
+Official migration references: [WXT releases](https://github.com/wxt-dev/wxt/releases), [Tailwind upgrade guide](https://tailwindcss.com/docs/upgrade-guide). Tailwind 4 requires Chrome/Edge 111+; the Firefox manifest already requires 140+.
 
-## Repeatable checks
+## Verification and limits
 
-Use Node.js 24 and the committed lockfile:
+- Full test suite, including history/staged-credential and privacy-scanner regression tests.
+- TypeScript and Chrome/Firefox production builds and their manifest/content audits.
+- Credential/privacy scan over the anonymized history and current files.
+- `npm audit` without omitting build or development dependencies.
+- Fresh `npm ci` from the committed lockfile, followed by verification.
+- Headless Chrome rendered actual built settings (1440px and 390px), Popup (340px) and sidebar (390px) with mock browser APIs. No horizontal overflow or application exception was observed; screenshots were inspected. A Shadow DOM control check confirmed generated padding, border and theme variables.
+
+The UI check is not installed-extension end-to-end acceptance: messaging, real translation, storage persistence and live Firefox navigation were not revalidated here. External requests were blocked; a locally injected security-product script was blocked by the harness. No real Key or paid Relay call was used. Existing daily Chrome/Firefox installations and the signed Firefox package were not modified.
+
+## Publication procedure
 
 ```sh
 npm ci
@@ -38,24 +52,11 @@ npm run audit:repository
 npm run verify
 npm run build:firefox
 npm run audit:build:firefox
+npm audit --audit-level=low
 git diff --check
 git status --short
 ```
 
-`npm test` includes scanner regression tests: a historical deleted credential remains detectable; a staged credential is detected even if its working copy is clean; ignored files are not scanned; matched values are not returned. `audit:repository` scans `HEAD` ancestry by default and fails on findings, shallow history or incomplete reads. `--all-refs` is an optional local diagnostic that also includes private checkpoints; it is not an instruction to publish those refs. Ignored files, reflogs and unreachable objects are outside the normal scan. Do not force-add ignored artifacts.
+Choose the destination GitHub repository and visibility, then update the package repository URL from upstream to that fork. Push only the reviewed branch after explicit authorization. Do not mirror the private checkout or upload a ZIP of its directory. Ignored development screenshots, profiles, logs, credentials, .output, dist, node_modules and private maintenance tools are not source deliverables. Existing development build version `0.6.0` is unchanged; producing a new signed Firefox update requires its own versioning and browser acceptance step.
 
-GitHub CI now uses Node.js 24, read-only repository permissions, a full checkout without persisted Git credentials, the repository scan, the complete test suite, TypeScript, and both production builds/audits. The workflow text was reviewed and its test/build commands were run locally; the workflow itself has not run on GitHub. Dependency audit findings are disclosed here, not hidden by a claim that CI is a vulnerability-free guarantee.
-
-## Local verification results
-
-- `npm run test:repository-audit`: passed (3 tests, including history and staged-content checks).
-- `npm run audit:repository`: passed with no unreviewed findings.
-- `npm run verify`: passed (full extension tests, TypeScript, Chrome production build and audit).
-- `npm run build:firefox` and `npm run audit:build:firefox`: passed.
-- `git diff --check`: passed.
-- Upstream commit `c18d1a5` remains an ancestor and `LICENSE` is unchanged from upstream.
-- `npm audit --json`: **failed with the 27 findings above**, not resolved in this task.
-
-These runs used the existing installed dependencies on Node.js v24.14.0. No new clean-machine installation, paid Relay call, browser acceptance run, source/signing archive generation or GitHub operation was performed. No lockfile or extension-runtime source was changed.
-
-Before the actual push, inspect the exact staged file list and diff, rerun the repository scan after the final commit, and confirm the destination, visibility and metadata decision with the owner. Never paste a live key into an issue or commit message. Revoke any temporary credentials shared during earlier testing at the Relay operator; this review did not read or reuse them and cannot confirm revocation.
+The dependency audit is now enforced by CI. New advisories may cause it to fail later; investigate rather than suppress them. Enable GitHub private vulnerability reporting when the destination exists. Revoke previously shared temporary credentials at the issuer; this task cannot confirm their revocation.

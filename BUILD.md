@@ -28,7 +28,7 @@ node -v
 npm -v
 ```
 
-Use Node.js 24 for the full test/build workflow. The older package engine floor is not a claim that the current tests run on Node.js 20.
+Use Node.js 24 for the full test/build workflow. Both the package engine floor and the build script enforce Node.js 24 or newer.
 
 ## One build script
 

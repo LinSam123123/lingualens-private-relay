@@ -1,6 +1,6 @@
 # LinguaLens Private Relay Edition
 
-A personal Relay edition of [q-jade/lingualens](https://github.com/q-jade/lingualens), based on upstream commit `c18d1a5`, with Chrome/Edge MV3 and Firefox MV2 development builds. The upstream Git history and MIT license are preserved. This is an independent fork, not an official upstream release or a hosted translation service.
+A personal Relay edition of [q-jade/lingualens](https://github.com/q-jade/lingualens), based on upstream commit `c18d1a5`, with Chrome/Edge MV3 and Firefox MV2 development builds. The change history is retained but author/committer identities, attribution trailers and private home paths have been anonymized for publication, so local commit hashes differ from the original history. The upstream MIT license and copyright notice are unchanged. This is an independent fork, not an official upstream release or a hosted translation service.
 
 **Build and test:** use Node.js 24 and npm 10+ with the committed lockfile. **AMO reviewers:** follow [BUILD.md](BUILD.md) from the exact source revision supplied with the add-on, not the latest development branch.
 
@@ -22,7 +22,7 @@ This edition has one translation backend: a user-configured private Relay exposi
 - Exact optional host permission requested by **Save and authorize host**
 - Optional Priority request mode; support, actual routing, speed and billing depend on your Relay
 
-Streaming and Priority are off by default. Unknown outcomes are never automatically replayed; manual retries can cause duplicate charges. Multiple presets, persistent translation caches and mobile-browser support are not implemented. Legacy provider cleanup and dependency upgrades remain separate work.
+Streaming and Priority are off by default. Unknown outcomes are never automatically replayed; manual retries can cause duplicate charges. Multiple presets, persistent translation caches and mobile-browser support are not implemented. Legacy provider cleanup remains separate work.
 
 ## Status and limitations
 
@@ -30,7 +30,7 @@ This is a development build, not a claim of complete browser or website compatib
 
 The package version remains `0.6.0`; identify a development build by its Git commit and build marker. A previously signed Firefox `0.6.0` package does not contain all current changes. No new signed release is supplied by this source update.
 
-The pinned dependency graph has known audit findings. See [publication review](docs/PUBLICATION_REVIEW.md) before building or publishing; do not assume a passing build means a clean dependency audit.
+The security maintenance update uses WXT 0.21.4 and Tailwind 4.3.3; `npm audit` reported zero findings on 2026-10-08. This is not a guarantee against undisclosed vulnerabilities. See [publication review](docs/PUBLICATION_REVIEW.md) for scope, migration and remaining browser-validation limits. Styles require Chrome/Edge 111+ or Firefox 140+ (the manifest's Firefox minimum).
 
 ## Build
 

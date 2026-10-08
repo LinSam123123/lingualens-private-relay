@@ -1,6 +1,6 @@
 # Security notes
 
-This is a personal development fork. It is not independently security-audited and has no promised response SLA. Known dependency findings and browser verification gaps are documented in [the publication review](docs/PUBLICATION_REVIEW.md).
+This is a personal development fork. It is not independently security-audited and has no promised response SLA. Dependency remediation and remaining browser verification gaps are documented in [the publication review](docs/PUBLICATION_REVIEW.md).
 
 ## Reporting
 
