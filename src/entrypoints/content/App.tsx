@@ -192,6 +192,9 @@ export function ContentApp({ onReady }: Props) {
   const pageTranslatePhaseRef = useRef<PageTranslatePhase>('idle');
   /** Latest progress for `finally` / stop (React state may lag one tick). */
   const pageProgressRef = useRef<TranslateProgress | null>(null);
+  const pageStartPending = useRef(false);
+  const routeUrl = useRef(location.href);
+  const routeSuspension = useRef<Promise<void>>(Promise.resolve());
 
   const applyPageTranslatePhase = (phase: PageTranslatePhase) => {
     pageTranslatePhaseRef.current = phase;
@@ -232,7 +235,9 @@ export function ContentApp({ onReady }: Props) {
     const settings = settingsRef.current;
     const engine = engineRef.current;
     if (engine.listening) { engine.supplement(); return; }
-    if (engine.running || pageTranslatePhaseRef.current !== 'idle') return;
+    if (engine.running || pageStartPending.current) return;
+    pageStartPending.current = true;
+    const continuing = pageProgressRef.current !== null;
     const epoch = ++autoPageEpoch.current;
 
     applyPageTranslatePhase('running');
@@ -241,8 +246,10 @@ export function ContentApp({ onReady }: Props) {
     const initial: TranslateProgress = {
       total: 0, pending: 0, done: 0, errors: 0, unknown: 0, cancelled: 0, abnormalBatches: 0,
     };
-    pageProgressRef.current = initial;
-    setPageProgress(initial);
+    if (!continuing) {
+      pageProgressRef.current = initial;
+      setPageProgress(initial);
+    }
 
     try {
       const config = {
@@ -254,10 +261,19 @@ export function ContentApp({ onReady }: Props) {
         type: 'PAGE_AUTO_START', payload: { documentId: engine.documentSessionId, config },
       }).catch(() => null);
       if (epoch !== autoPageEpoch.current) return;
+      if (!armed?.success) {
+        showToast(t('content.autoStartFailed'));
+        if (!continuing) { pageProgressRef.current = null; setPageProgress(null); }
+        return;
+      }
+      if (continuing) {
+        await engine.continueWatching();
+        return;
+      }
       await engine.start(
         {
           ...config,
-          continuous: armed?.success === true,
+          continuous: true,
           maxCharsPerRequest: settings?.providers[0]?.maxCharsPerRequest ?? 8_000,
           maxItemsPerRequest: settings?.providers[0]?.maxItemsPerRequest ?? 0,
           maxPageChars: settings?.providers[0]?.maxPageChars ?? 100_000,
@@ -270,9 +286,10 @@ export function ContentApp({ onReady }: Props) {
         },
       );
     } finally {
+      pageStartPending.current = false;
       if (epoch === autoPageEpoch.current) finishPageTranslateSession(pageProgressRef.current);
     }
-  }, [displayMode]);
+  }, [displayMode, showToast, t]);
 
   const stopPageTranslation = () => {
     autoPageEpoch.current += 1;
@@ -333,11 +350,20 @@ export function ContentApp({ onReady }: Props) {
 
   const autoChecks = useRef(new PageCheckQueue());
   const autoPageEpoch = useRef(0);
-  const checkAutoPageTranslation = () => autoChecks.current.run(async () => {
+  const checkAutoPageTranslation = () => {
+    if (routeUrl.current !== location.href) {
+      routeUrl.current = location.href;
+      autoPageEpoch.current += 1;
+      const suspended = engineRef.current.suspend();
+      routeSuspension.current = Promise.all([routeSuspension.current, suspended]).then(() => undefined);
+    }
+    return autoChecks.current.run(async () => {
     if (!settingsRef.current) return;
     const epoch = autoPageEpoch.current;
     const engine = engineRef.current;
     try {
+      await routeSuspension.current;
+      if (epoch !== autoPageEpoch.current) return;
       const response = await browser.runtime.sendMessage({
         type: 'PAGE_AUTO_READY', payload: { documentId: engine.documentSessionId },
       });
@@ -370,7 +396,8 @@ export function ContentApp({ onReady }: Props) {
     } catch {
       // A failed handshake must never silently enable automatic translation.
     }
-  });
+    });
+  };
   const autoCheckRef = useRef(checkAutoPageTranslation);
   autoCheckRef.current = checkAutoPageTranslation;
   useEffect(() => {
@@ -388,9 +415,14 @@ export function ContentApp({ onReady }: Props) {
     };
     window.addEventListener('pagehide', hide);
     window.addEventListener('pageshow', show);
+    const route = () => { void autoCheckRef.current(); };
+    window.addEventListener('popstate', route);
+    window.addEventListener('hashchange', route);
     return () => {
       window.removeEventListener('pagehide', hide);
       window.removeEventListener('pageshow', show);
+      window.removeEventListener('popstate', route);
+      window.removeEventListener('hashchange', route);
       autoChecks.current.clear();
       void engineRef.current.cancel();
     };

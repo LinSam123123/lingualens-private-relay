@@ -184,6 +184,7 @@
     "lmStudioNote": "使用 LM Studio 原生 <code>/api/v1/chat</code>（非 OpenAI <code>/v1</code>）。"
   },
   "content": {
+    "autoStartFailed": "未能启用自动翻译。请等待页面加载完成后重试。",
     "translating": "翻译中…",
     "translationFailed": "翻译失败",
     "noProvider": "未配置可用的翻译提供者。请打开设置添加一个。",

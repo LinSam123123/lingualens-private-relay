@@ -309,6 +309,24 @@ test('cancelled navigation wait neither completes early nor resumes deferred wor
   await engine.restore();
 });
 
+test('route suspension preserves an existing unknown outcome without enabling automatic replay', async () => {
+  const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
+  textNode('Ambiguous result before navigation');
+  const h = installBrowser(() => ({ success: false }));
+  const engine = new PageTranslateEngine();
+  let progress;
+  const pending = engine.start(options, (p) => { progress = p; });
+  await until(() => h.batchCalls.length === 1);
+  h.batchCalls[0].resolve(batchResult(h.batchCalls[0].message.payload, '', 'interrupted/unknown'));
+  await pending;
+  await engine.suspend();
+  assert.equal(progress.unknown, 1);
+  assert.equal(progress.cancelled, 0);
+  await engine.reattach();
+  assert.equal(h.batchCalls.length, 1);
+  await engine.restore();
+});
+
 test('manual retry rebinds the stream port and shows an item before the final reply', async () => {
   const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
   const node = textNode('Retry after the port drops');

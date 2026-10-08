@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { type DisplayMode, type TranslateProgress } from './engine';
 import { statusBarFlags } from './status-bar-state';
 import { AppLogo } from '../../shared/AppLogo';
+import { ActionButton } from './ActionButton';
 
 interface Props {
   progress: TranslateProgress | null;
@@ -68,7 +69,7 @@ export function StatusBar({
   const label = t(progress ? 'statusBar.expand' : 'popup.translatePage');
   return (
     <div ref={dock} className="st-page-dock" style={{ top }} data-lingualens-ui="true">
-      <button
+      <ActionButton
         type="button"
         onPointerDown={(event) => {
           if (event.button !== 0) return;
@@ -85,7 +86,7 @@ export function StatusBar({
         }}
         onPointerUp={() => { suppressClick.current = drag.current?.moved ?? false; drag.current = null; }}
         onPointerCancel={() => { suppressClick.current = true; drag.current = null; }}
-        onClick={(event) => {
+        onActivate={(event) => {
           if (suppressClick.current && event.detail > 0) { suppressClick.current = false; return; }
           if (progress) onToggleCollapse();
           else onStart();
@@ -100,7 +101,7 @@ export function StatusBar({
         {progress && <span className={`st-status-collapsed-badge${progress.errors || progress.unknown ? ' st-dock-error' : ''}`}>
           {progress.errors || progress.unknown ? '!' : paused ? 'Ⅱ' : running ? (preparing ? '...' : `${percent}%`) : `${percent}%`}
         </span>}
-      </button>
+      </ActionButton>
     {progress && !collapsed && <div id="st-page-controls" className="st-status-bar" role="region" aria-label={t('statusBar.expand')}
       style={top > window.innerHeight / 2
         ? { bottom: 0, maxHeight: `${top + 36}px` }
@@ -129,15 +130,16 @@ export function StatusBar({
       </div>}
 
       <div className="st-status-actions">
-        {(running || listening) && !paused && <button onClick={onPause} className="st-status-btn">{t('statusBar.pause')}</button>}
-        {(running || listening) && paused && <button onClick={onResume} className="st-status-btn">{t('statusBar.resume')}</button>}
-        {(running || listening) && <button onClick={onCancel} className="st-status-btn st-status-btn-warn">{t(listening ? 'statusBar.stopAuto' : 'statusBar.cancel')}</button>}
-        {listening && !running && !paused && !progress.budgetExhausted && <button onClick={onSupplement} className="st-status-btn">{t('statusBar.supplement')}</button>}
-        {finished && progress.errors > 0 && <button disabled={progress.budgetExhausted} onClick={onRetryFailed} className="st-status-btn">{t('statusBar.retryFailed')}</button>}
-        {finished && progress.unknown > 0 && <button disabled={progress.budgetExhausted} onClick={onRetryUnknown} className="st-status-btn st-status-btn-unknown">{t('statusBar.retryUnknown')}</button>}
-        {finished && progress.done > 0 && <button onClick={onToggleMode} className="st-status-btn" title={t('statusBar.switchMode')}>{displayMode === 'bilingual' ? t('statusBar.replace') : t('statusBar.bilingual')}</button>}
-        {(running || finished || listening) && <button onClick={onRestore} className="st-status-btn">{t('statusBar.restore')}</button>}
-        <button onClick={onToggleCollapse} className="st-status-btn-icon" title={t('statusBar.minimize')} aria-label={t('statusBar.minimize')}>-</button>
+        {!running && !listening && !progress.budgetExhausted && <ActionButton onActivate={onStart} className="st-status-btn">{t('popup.translatePage')}</ActionButton>}
+        {(running || listening) && !paused && <ActionButton onActivate={onPause} className="st-status-btn">{t('statusBar.pause')}</ActionButton>}
+        {(running || listening) && paused && <ActionButton onActivate={onResume} className="st-status-btn">{t('statusBar.resume')}</ActionButton>}
+        {(running || listening) && <ActionButton onActivate={onCancel} className="st-status-btn st-status-btn-warn">{t(listening ? 'statusBar.stopAuto' : 'statusBar.cancel')}</ActionButton>}
+        {listening && !running && !paused && !progress.budgetExhausted && <ActionButton onActivate={() => onSupplement?.()} className="st-status-btn">{t('statusBar.supplement')}</ActionButton>}
+        {finished && progress.errors > 0 && <ActionButton disabled={progress.budgetExhausted} onActivate={onRetryFailed} className="st-status-btn">{t('statusBar.retryFailed')}</ActionButton>}
+        {finished && progress.unknown > 0 && <ActionButton disabled={progress.budgetExhausted} onActivate={onRetryUnknown} className="st-status-btn st-status-btn-unknown">{t('statusBar.retryUnknown')}</ActionButton>}
+        {finished && progress.done > 0 && <ActionButton onActivate={onToggleMode} className="st-status-btn" title={t('statusBar.switchMode')}>{displayMode === 'bilingual' ? t('statusBar.replace') : t('statusBar.bilingual')}</ActionButton>}
+        {(running || finished || listening) && <ActionButton onActivate={onRestore} className="st-status-btn">{t('statusBar.restore')}</ActionButton>}
+        <ActionButton onActivate={onToggleCollapse} className="st-status-btn-icon" title={t('statusBar.minimize')} aria-label={t('statusBar.minimize')}>-</ActionButton>
       </div>
     </div>}
     </div>

@@ -123,7 +123,8 @@ export class TranslationScheduler {
     this.maxConcurrency = Math.min(10, Math.max(1, config.maxConcurrency ?? 2));
     if (!this.taskStarted.has(request.taskId)) this.taskStarted.set(request.taskId, Date.now());
     const journal = await ensureTask(request, tabId);
-    if (journal.status === 'cancel' || journal.status === 'restore') {
+    if (journal.status === 'cancel' || journal.status === 'restore'
+      || (request.generation ?? 0) < (journal.generationFloor ?? 0)) {
       const stopped = await transitionBatch(request.taskId, request.batchId, 'cancelled');
       return resultFrom(request, 'cancelled', stopped, stopped.batches[request.batchId].attempt,
         itemResults(request, 'cancelled', 'CANCELLED'));
@@ -235,9 +236,14 @@ export class TranslationScheduler {
         { requests: 1, chars },
         { maxRequests: config.maxPageRequests ?? 100, maxChars: config.maxPageChars ?? 100_000 },
         attempt + 1,
+        request.generation,
       );
       if (!budget.ok) {
         if (budget.code === 'TASK_NOT_FOUND') throw new Error('TASK_NOT_FOUND');
+        if (budget.code === 'STALE_TASK_GENERATION') {
+          const journal = await transitionBatch(request.taskId, request.batchId, 'cancelled');
+          return resultFrom(request, 'cancelled', journal, attempt, itemResults(request, 'cancelled', budget.code));
+        }
         const journal = await transitionBatch(request.taskId, request.batchId, 'failed');
         this.recordAttempt(request, {
           attempt,
@@ -518,6 +524,8 @@ export class TranslationScheduler {
         ));
       }
     }
+    // A resume must not race the previous route's aborted requests settling.
+    if (action === 'suspend') await Promise.allSettled([...runtime.settling]);
     const journal = await setTaskStatus(taskId, sessionId, action);
     if (action === 'complete') {
       const started = this.taskStarted.get(taskId);

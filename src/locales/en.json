@@ -184,6 +184,7 @@
     "lmStudioNote": "Uses LM Studio native <code>/api/v1/chat</code> (not OpenAI <code>/v1</code>)."
   },
   "content": {
+    "autoStartFailed": "Could not enable automatic translation. Wait for the page to finish loading and try again.",
     "translating": "Translating…",
     "translationFailed": "Translation failed",
     "noProvider": "No active provider configured. Open Settings to add one.",

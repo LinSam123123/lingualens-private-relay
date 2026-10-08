@@ -4,6 +4,7 @@ interface Revision {
   item: DomTranslationItem;
   version: number;
   written: string;
+  requeue?: boolean;
 }
 
 /** A website edit invalidates a translation even before MutationObserver runs. */
@@ -12,7 +13,7 @@ export class NodeRevisions {
 
   claim(item: DomTranslationItem): DomTranslationItem | null {
     const prior = this.records.get(item.node);
-    if (prior && item.originalText === prior.written) return null;
+    if (prior && !prior.requeue && item.originalText === prior.written) return null;
     const version = (prior?.version ?? 0) + 1;
     const current = { ...item, id: version === 1 ? item.id : `${item.id}-r${version}` };
     this.records.set(item.node, { item: current, version, written: item.originalText });
@@ -22,7 +23,11 @@ export class NodeRevisions {
   current(item: DomTranslationItem): boolean {
     const record = this.records.get(item.node);
     return item.node.isConnected !== false && Boolean(item.node.parentNode)
-      && record?.item.id === item.id && item.node.textContent === record.written;
+      && !record?.requeue && record?.item.id === item.id && item.node.textContent === record.written;
+  }
+
+  requeue(item: DomTranslationItem): void {
+    if (this.current(item)) this.records.get(item.node)!.requeue = true;
   }
 
   write(item: DomTranslationItem, value: string): boolean {

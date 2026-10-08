@@ -27,6 +27,19 @@ Background 的 storage.session 仅保存标签页 origin、文档 ID、语言、
 
 ## 最小浏览器验收
 
+### Back navigation and dock repair (2026-10-08)
+
+Build marker: `spa-dock-v2`. Chrome and Firefox share the changes; no signed package is generated.
+
+- Do not silently fall back to a one-shot snapshot when automatic-translation authorization fails. Keep the start action available and show a retryable notice.
+- Finished/stopped panels offer Translate This Page without requiring restoration. Continuing reuses the engine's revisions, task ID and budget, and does not replay failed/unknown items.
+- Explicit Translate new content can reclaim wholly untranslated nodes cancelled by route departure. Automatic reattachment does not replay them; partial long-node results and unknown outcomes retain their existing conservative handling.
+- On a changed SPA URL, suspend old work before the continuation handshake. Back/forward and hash navigation are detected locally; background tab notifications cover pushState routes. No site history methods are patched.
+- Suspend aborts old fetches and cancels queued work; a persisted generation floor also rejects old requests delayed before scheduling. Dispatched budgets are not refunded. Existing unknown outcomes stay unknown.
+- Page action buttons use target-level native click listeners instead of relying on delegated React click targeting through the host page's shadow-DOM modifications.
+
+Verification: the installed Chrome build's inactive dock was reproduced on a new YouTube tab (both click and Enter). The updated React ContentApp, AutoPages and scheduler were then exercised in a local Chromium DOM fixture with fake translations and simulated event retargeting. Start, list-to-detail-to-back automatic continuation, cancellation during a request, stop/restart without restore, and a rejected authorization handshake were checked. Seven mock fetches shared one cumulative budget; one in-flight fetch was aborted. This is not a post-update installed-extension YouTube or Firefox acceptance test. Reload the development extension and refresh existing site tabs once before retesting. Credentials and daily signed packages are unchanged.
+
 ### SPA navigation repair (2026-10-08)
 
 - Background verifies a nonce-tagged top-frame document probe against the current tab URL and the engine's document session ID. Same-origin SPA path/query changes no longer depend on the sender URL staying current. Real document replacement and cross-origin messages still fail ownership checks.

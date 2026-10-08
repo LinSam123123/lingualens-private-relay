@@ -28,7 +28,7 @@ export interface BatchDiagnostic {
   reportedServiceTier?: ReportedServiceTier | null;
 }
 
-export const BATCH_DIAGNOSTICS_BUILD = 'priority-mode-v1';
+export const BATCH_DIAGNOSTICS_BUILD = 'spa-dock-v2';
 const MAX_ENTRIES = 40;
 
 export interface TaskTiming {

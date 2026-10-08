@@ -16,6 +16,7 @@ export interface BatchJournalEntry {
 }
 
 export interface TaskJournalEntry {
+  generationFloor?: number;
   taskId: string;
   sessionId: string;
   tabId: number;
@@ -143,14 +144,17 @@ export async function ensureTaskControl(
   sessionId: string,
   tabId: number,
   status: TaskControlAction,
+  generation?: number,
 ): Promise<TaskJournalEntry> {
   return mutateJournal((journal) => {
     const existing = journal[taskId];
     if (existing && (existing.sessionId !== sessionId || existing.tabId !== tabId)) throw new Error('TASK_OWNER_MISMATCH');
+    if ((generation ?? 0) < (existing?.generationFloor ?? 0)) throw new Error('STALE_TASK_GENERATION');
     const task = existing ?? {
       taskId, sessionId, tabId, requestsUsed: 0, charsUsed: 0, batches: {}, updatedAt: Date.now(), status,
     };
     task.status = status;
+    if (generation !== undefined) task.generationFloor = generation;
     task.updatedAt = Date.now();
     journal[taskId] = task;
     return structuredClone(task);
@@ -164,11 +168,13 @@ export async function consumeDispatchBudget(
   addition: { requests: number; chars: number },
   limits: { maxRequests: number; maxChars: number },
   attempt: number,
-): Promise<{ ok: true; journal: TaskJournalEntry } | { ok: false; code: 'PAGE_BUDGET_EXCEEDED' | 'TASK_NOT_FOUND' }> {
+  generation?: number,
+): Promise<{ ok: true; journal: TaskJournalEntry } | { ok: false; code: 'PAGE_BUDGET_EXCEEDED' | 'TASK_NOT_FOUND' | 'STALE_TASK_GENERATION' }> {
   return mutateJournal((journal) => {
     const task = journal[taskId];
     const batch = task?.batches[batchId];
     if (!task || task.sessionId !== sessionId || !batch) return { ok: false as const, code: 'TASK_NOT_FOUND' as const };
+    if ((generation ?? 0) < (task.generationFloor ?? 0)) return { ok: false as const, code: 'STALE_TASK_GENERATION' as const };
     if (task.requestsUsed + addition.requests > limits.maxRequests || task.charsUsed + addition.chars > limits.maxChars) {
       return { ok: false as const, code: 'PAGE_BUDGET_EXCEEDED' as const };
     }

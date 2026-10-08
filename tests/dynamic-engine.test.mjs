@@ -136,6 +136,7 @@ function browserHarness(maxPageRequests = 100) {
           }) };
         if (message.type === 'TASK_CONTROL') {
           const p = message.payload;
+          await ensureTaskControl(p.taskId, p.sessionId, 7, p.action, p.generation);
           return { success: true, data: await scheduler.control(p.taskId, p.sessionId, p.action) };
         }
         if (message.type === 'GET_TASK_RECOVERY') return { success: true,
@@ -155,6 +156,93 @@ async function until(predicate, timeout = 2500) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
+
+test('route departure aborts old work, preserves document budget and translates the new view', async () => {
+  const dom = mount();
+  const old = dom.add('Old video page paragraph');
+  const h = browserHarness();
+  h.setDelay(true);
+  const engine = new PageTranslateEngine();
+  const initial = engine.start(options, () => {});
+  await until(() => h.calls.length === 1);
+  const firstRequest = h.sent.find((m) => m.type === 'TRANSLATE_BATCH').payload;
+  await engine.suspend();
+  await initial;
+  assert.equal(h.scheduler.activeSlotCount, 0);
+  assert.equal(old.textContent, 'Old video page paragraph');
+  old.isConnected = false;
+  old.parentElement.remove();
+  const next = dom.add('Back to the video list');
+  h.setDelay(false);
+  await engine.reattach();
+  await until(() => next.textContent.startsWith('[translated]'));
+  const journal = await getTaskJournal(firstRequest.taskId, firstRequest.sessionId);
+  assert.equal(journal.requestsUsed, 2);
+  const requests = h.sent.filter((m) => m.type === 'TRANSLATE_BATCH').map((m) => m.payload);
+  assert.equal(new Set(requests.map((r) => r.taskId)).size, 1);
+  assert.equal(new Set(requests.map((r) => r.sessionId)).size, 1);
+  assert.equal(old.textContent, 'Old video page paragraph');
+  assert.ok(journal.charsUsed >= 'Old video page paragraphBack to the video list'.length);
+  // A request still crossing the message/cache boundary must not dispatch after resume.
+  const late = await browser.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: {
+    ...firstRequest, batchId: 'late-old-batch', requestId: crypto.randomUUID(),
+  } });
+  assert.equal(late.data.status, 'cancelled');
+  assert.equal(h.calls.length, 2);
+  assert.equal((await getTaskJournal(firstRequest.taskId, firstRequest.sessionId)).requestsUsed, 2);
+  const rebuilt = new TranslationScheduler();
+  const afterRestart = await rebuilt.submit({ ...firstRequest, batchId: 'late-after-restart', requestId: crypto.randomUUID() },
+    7, 0, { translateItems: async () => { throw new Error('must not fetch'); } },
+    { maxCharsPerRequest: 500, maxItemsPerRequest: 5 });
+  assert.equal(afterRestart.status, 'cancelled');
+  await engine.restore();
+});
+
+test('completed snapshot can enable watching without losing translations or resetting budget', async () => {
+  const dom = mount();
+  const first = dom.add('Previously translated page');
+  const h = browserHarness(2);
+  const engine = new PageTranslateEngine();
+  await engine.start({ ...options, continuous: false }, () => {});
+  assert.equal(engine.listening, false);
+  const request = h.sent.find((m) => m.type === 'TRANSLATE_BATCH').payload;
+  await engine.continueWatching();
+  const added = dom.add('New list content');
+  await until(() => added.textContent.startsWith('[translated]'));
+  assert.equal(first.textContent, '[translated] Previously translated page');
+  assert.equal(h.calls.length, 2);
+  assert.equal((await getTaskJournal(request.taskId, request.sessionId)).requestsUsed, 2);
+  await engine.cancel();
+  await engine.continueWatching();
+  dom.add('Budget must still be exhausted');
+  await new Promise((resolve) => setTimeout(resolve, 650));
+  assert.equal(h.calls.length, 2);
+  await engine.restore();
+});
+
+test('explicit supplement requeues wholly cancelled route nodes, but automatic reattach does not', async () => {
+  const dom = mount();
+  const node = dom.add('A cached DOM node returned by the website');
+  const h = browserHarness();
+  h.setDelay(true);
+  const engine = new PageTranslateEngine();
+  const first = engine.start(options, () => {});
+  await until(() => h.calls.length === 1);
+  await engine.suspend();
+  await first;
+  h.setDelay(false);
+  await engine.reattach();
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(h.calls.length, 1);
+  engine.supplement();
+  await until(() => node.textContent.startsWith('[translated]'));
+  assert.equal(h.calls.length, 2);
+  const requests = h.sent.filter((m) => m.type === 'TRANSLATE_BATCH').map((m) => m.payload);
+  assert.equal(requests[0].taskId, requests[1].taskId);
+  assert.notEqual(requests[0].items[0].id, requests[1].items[0].id);
+  assert.equal((await getTaskJournal(requests[0].taskId, requests[0].sessionId)).requestsUsed, 2);
+  await engine.restore();
+});
 
 test('initial snapshot, dynamic revision, offscreen and hidden nodes reuse one budget without own-write loops', async () => {
   const dom = mount();

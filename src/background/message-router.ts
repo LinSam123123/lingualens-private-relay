@@ -64,7 +64,8 @@ export function handleTabNavigation(tabId: number, url: string | undefined, load
     if (enabled === false) {
       await translationScheduler.cancelTab(tabId);
       await browser.tabs.sendMessage(tabId, { type: 'PAGE_AUTO_DISABLED' }).catch(() => undefined);
-    } else if (enabled && !loading) {
+    } else if (enabled) {
+      // Let the page stop old-route work immediately; the handshake remains fenced while loading.
       await browser.tabs.sendMessage(tabId, { type: 'PAGE_AUTO_CHECK' }).catch(() => undefined);
     }
   });
@@ -431,8 +432,9 @@ export async function handleMessage(
     }
     case 'TASK_CONTROL': {
       const tabId = sender.tab?.id;
-      const payload = message.payload as { taskId?: string; sessionId?: string; action?: string };
-      if (tabId == null || !/^[a-zA-Z0-9-]{8,128}$/.test(payload.taskId ?? '')
+      const payload = message.payload as { taskId?: string; sessionId?: string; action?: string; generation?: number };
+      if (!payload || (payload.generation !== undefined && (!Number.isSafeInteger(payload.generation) || payload.generation < 1))
+        || tabId == null || !/^[a-zA-Z0-9-]{8,128}$/.test(payload.taskId ?? '')
         || !/^[a-zA-Z0-9-]{8,128}$/.test(payload.sessionId ?? '')) {
         return { success: false, error: 'INVALID_TASK_CONTROL' };
       }
@@ -444,12 +446,10 @@ export async function handleMessage(
       const sessionId = payload.sessionId!;
       let journal = await getTaskJournal(taskId, sessionId);
       if (journal && journal.tabId !== tabId) return { success: false, error: 'TASK_NOT_FOUND' };
-      if (!journal) {
-        if (payload.action === 'complete') return { success: false, error: 'TASK_NOT_FOUND' };
-        try {
-          journal = await ensureTaskControl(taskId, sessionId, tabId, payload.action as typeof allowed[number]);
-        } catch { return { success: false, error: 'TASK_NOT_FOUND' }; }
-      }
+      if (!journal && payload.action === 'complete') return { success: false, error: 'TASK_NOT_FOUND' };
+      try {
+        journal = await ensureTaskControl(taskId, sessionId, tabId, payload.action as typeof allowed[number], payload.generation);
+      } catch { return { success: false, error: 'TASK_NOT_FOUND' }; }
       const changed = await translationScheduler.control(
         taskId,
         sessionId,

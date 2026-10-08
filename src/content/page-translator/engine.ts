@@ -223,7 +223,14 @@ export class PageTranslateEngine {
   /** Explicit supplementation is still viewport-gated and never retries an old revision. */
   supplement(explicit = true): void {
     if (!this.listening) return;
-    if (explicit) this.portLost = false;
+    if (explicit) {
+      this.portLost = false;
+      for (const item of this.domItems) {
+        const chunks = this.chunksByDomId.get(item.id) ?? [];
+        if (chunks.length && chunks.every((chunk) => !this.translatedChunks.has(chunk.id)
+          && this.itemFailures.get(chunk.id)?.error === 'PAGE_SUSPENDED')) this.revisions.requeue(item);
+      }
+    }
     if (explicit && this.navigationWaiting) this.checkDocument();
     this.observer?.schedule(document.body);
     if (explicit) void this.pumpDynamic();
@@ -289,25 +296,44 @@ export class PageTranslateEngine {
   }
 
   async suspend(): Promise<void> {
-    if (!this.listening) return;
+    if (!this.taskId || this.suspended || this.isCancelled) return;
     this.suspended = true;
     this.generation += 1;
     this.stopWatching();
     this.streamClosed = true;
     this.closeStreamPort();
     this.isRunning = false;
-    for (const batch of this.batches) this.recordBatchFailure(batch, 'cancelled', 'PAGE_SUSPENDED');
+    for (const batch of this.batches) {
+      for (const item of batch.items) {
+        if (!this.translatedChunks.has(item.id) && !this.itemFailures.has(item.id)) {
+          this.itemFailures.set(item.id, { id: item.id, status: 'cancelled', error: 'PAGE_SUSPENDED' });
+        }
+      }
+    }
+    this.emitProgress();
     await this.control('suspend');
+  }
+
+  /** Re-enable watching without replacing the document's task, revisions or budget. */
+  async continueWatching(): Promise<void> {
+    if (!this.taskId || !this.sessionOptions) return;
+    this.sessionOptions.continuous = true;
+    this.isCancelled = false;
+    this.suspended = true;
+    await this.reattach();
+    this.supplement();
   }
 
   async reattach(): Promise<void> {
     if (!this.suspended || this.isCancelled || !this.sessionOptions) return;
+    const identity = this.currentIdentity();
     this.suspended = false;
     this.portLost = false;
     this.streamClosed = false;
     await this.control(this.isPaused ? 'pause' : 'resume');
+    if (!this.isCurrent(identity) || this.isCancelled) return;
     this.watch();
-    this.supplement();
+    this.supplement(false);
     this.emitProgress();
   }
 
@@ -501,7 +527,7 @@ export class PageTranslateEngine {
     }
     await browser.runtime.sendMessage({
       type: 'TASK_CONTROL',
-      payload: { taskId: identity.taskId, sessionId: identity.sessionId, action: 'complete' },
+      payload: { taskId: identity.taskId, sessionId: identity.sessionId, generation: identity.generation, action: 'complete' },
     }).catch(() => undefined);
   }
 
@@ -811,7 +837,7 @@ export class PageTranslateEngine {
     if (!taskId) return;
     await browser.runtime.sendMessage({
       type: 'TASK_CONTROL',
-      payload: { taskId, sessionId, action },
+      payload: { taskId, sessionId, action, generation: this.generation },
     }).catch(() => undefined);
   }
 

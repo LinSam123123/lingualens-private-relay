@@ -154,7 +154,7 @@ export type MessageType =
   | { type: 'GET_MODELS' }
   | { type: 'TEST_CONNECTION' }
   | { type: 'TRANSLATE_BATCH'; payload: TranslationBatchRequest }
-  | { type: 'TASK_CONTROL'; payload: { taskId: string; sessionId: string; action: TaskControlAction } }
+  | { type: 'TASK_CONTROL'; payload: { taskId: string; sessionId: string; action: TaskControlAction; generation?: number } }
   | { type: 'GET_TASK_RECOVERY'; payload: { taskId: string; sessionId: string } }
   | { type: 'SAVE_SETTINGS'; payload: Partial<AppSettings> }
   | { type: 'UPDATE_RUNTIME_SETTINGS'; payload: RuntimeSettingsPatch }
