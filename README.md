@@ -76,7 +76,7 @@ See [docs/privacy.md](docs/privacy.md) for local data and network behavior.
 
 Use a separate browser profile, fake keys and `npm run mock-relay` for regression tests. Do not include account screenshots, HAR files, real Relay credentials, browser profiles or signed packages in a pull request. Report credential leaks privately through GitHub's private vulnerability reporting if the repository owner has enabled it; never put a live key in an issue.
 
-Before the first push, follow [publication review](docs/PUBLICATION_REVIEW.md). Push only the intended branch, not `--mirror` or all local refs. The `package.json` repository URL currently identifies upstream; update it to the owner's actual fork URL once that destination has been chosen.
+For publication, follow [publication review](docs/PUBLICATION_REVIEW.md). Push only the intended branch, not `--mirror` or all local refs. This fork is hosted at [LinSam123123/lingualens-private-relay](https://github.com/LinSam123123/lingualens-private-relay); the original upstream is linked above.
 
 For disclosure guidance and isolation limits, see [SECURITY.md](SECURITY.md).
 

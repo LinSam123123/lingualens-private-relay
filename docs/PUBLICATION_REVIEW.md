@@ -1,6 +1,6 @@
 # GitHub publication review
 
-Updated 2026-10-08. This is the separately prepared publication checkout, not the original private working directory. Nothing has been pushed to GitHub and no signed package was produced.
+Updated 2026-10-08. This is the separately prepared publication checkout, not the original private working directory. The authorized public destination is [LinSam123123/lingualens-private-relay](https://github.com/LinSam123123/lingualens-private-relay), using branch `codex/public-release`. No signed package was produced.
 
 ## Anonymized history
 
@@ -9,7 +9,7 @@ Updated 2026-10-08. This is the separately prepared publication checkout, not th
 - Private home-directory paths were replaced in historical text blobs and commit messages. Current documentation uses repository-relative paths.
 - The original upstream MIT license and its copyright notice are unchanged. That required attribution is intentionally not removed.
 - Rewritten commits have different hashes. References to old hashes in historical documentation identify the original private/upstream history, not necessarily a locally resolvable revision.
-- The publication checkout contains only `codex/public-release`, with no remote, original tags, private checkpoints or original-history backup refs. The original working directory remains the private recovery copy; do not publish it.
+- The reviewed local history contains only `codex/public-release`, with no original tags, private checkpoints or original-history backup refs. Only this branch is intended for the publication remote. The original working directory remains the private recovery copy; do not publish it.
 - Local Git identity in this checkout is anonymous for future commits. This does not change the machine's global Git identity. A GitHub push still exposes the publishing GitHub account; repository-content anonymization does not make the account anonymous.
 
 The repository scanner checks worktree files, staged blobs, complete `HEAD` ancestry, and commit messages for credential patterns, personal email addresses and home-directory paths. It reports only locations and rule names, not matched values. Exact reviewed fake test lines are narrowly allowlisted by path and SHA-256. Example-domain and GitHub noreply email addresses are allowed. This is a heuristic check, not proof that all possible identifying information or secrets are absent.
@@ -57,6 +57,6 @@ git diff --check
 git status --short
 ```
 
-Choose the destination GitHub repository and visibility, then update the package repository URL from upstream to that fork. Push only the reviewed branch after explicit authorization. Do not mirror the private checkout or upload a ZIP of its directory. Ignored development screenshots, profiles, logs, credentials, .output, dist, node_modules and private maintenance tools are not source deliverables. Existing development build version `0.6.0` is unchanged; producing a new signed Firefox update requires its own versioning and browser acceptance step.
+The owner authorized a new public repository and the package repository URL now identifies that destination. Push only the reviewed branch. Do not mirror the private checkout or upload a ZIP of its directory. Ignored development screenshots, profiles, logs, credentials, .output, dist, node_modules and private maintenance tools are not source deliverables. Existing development build version `0.6.0` is unchanged; producing a new signed Firefox update requires its own versioning and browser acceptance step.
 
 The dependency audit is now enforced by CI. New advisories may cause it to fail later; investigate rather than suppress them. Enable GitHub private vulnerability reporting when the destination exists. Revoke previously shared temporary credentials at the issuer; this task cannot confirm their revocation.
