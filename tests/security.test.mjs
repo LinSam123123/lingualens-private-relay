@@ -1,4 +1,30 @@
 import assert from 'node:assert/strict';
+import { initializeContextMenus } from '../src/background/context-menus.ts';
+
+test('menu creation removes persisted IDs and consumes callback failures', async () => {
+  const ids = new Set(['translate-selection', 'translate-page']);
+  let reads = 0;
+  let fail = false;
+  const api = {
+    i18n: { getMessage: () => '' },
+    runtime: { get lastError() { reads++; return fail ? { message: 'private browser error' } : undefined; } },
+    contextMenus: {
+      async removeAll() { ids.clear(); },
+      create(properties, callback) {
+        assert.equal(ids.has(properties.id), false);
+        ids.add(properties.id);
+        queueMicrotask(callback);
+      },
+    },
+  };
+  await initializeContextMenus(api);
+  await initializeContextMenus(api);
+  assert.deepEqual([...ids], ['translate-selection', 'translate-page']);
+  assert.equal(reads, 4);
+  fail = true;
+  await assert.rejects(initializeContextMenus(api), /CONTEXT_MENU_INITIALIZATION_FAILED/);
+  assert.equal(reads, 5);
+});
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 

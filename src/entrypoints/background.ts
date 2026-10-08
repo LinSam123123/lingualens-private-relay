@@ -9,9 +9,12 @@ import type { SelectionTriggerMode } from '../shared/types';
 import { initializationPromise, requireInitialization } from '../background/initialization';
 import { listenForPagePort } from '../background/page-port';
 import { PAGE_PORT_NAME } from '../shared/stream-delivery';
+import { initializeContextMenus } from '../background/context-menus';
 
 export default defineBackground(() => {
   registerInstallOnboarding(initializationPromise);
+  const menusReady = requireInitialization().then(() => initializeContextMenus(browser));
+  void menusReady.catch(() => console.warn('[LinguaLens] Context menu initialization failed'));
   const pageTranslatePhaseByTab = new Map<number, PageTranslatePhase>();
 
   function rememberPageTranslatePhase(tabId: number, phase: PageTranslatePhase): void {
@@ -30,6 +33,7 @@ export default defineBackground(() => {
 
   async function applyPageContextMenu(tabId: number, phase: PageTranslatePhase): Promise<void> {
     try {
+      await menusReady;
       const tab = await browser.tabs.get(tabId);
       if (!isTranslatableTabUrl(tab.url)) {
         await browser.contextMenus.update('translate-page', { enabled: false });
@@ -275,18 +279,6 @@ export default defineBackground(() => {
         break;
       }
     }
-  });
-
-  browser.contextMenus.create({
-    id: 'translate-selection',
-    title: browser.i18n.getMessage('contextMenuTranslateSelection', ['%s']) || 'Translate "%s"',
-    contexts: ['selection'],
-  });
-
-  browser.contextMenus.create({
-    id: 'translate-page',
-    title: browser.i18n.getMessage('contextMenuTranslatePage') || 'Translate This Page',
-    contexts: ['page'],
   });
 
   browser.tabs.onActivated.addListener(({ tabId }) => {
