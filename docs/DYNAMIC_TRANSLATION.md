@@ -27,6 +27,26 @@ Background 的 storage.session 仅保存标签页 origin、文档 ID、语言、
 
 ## 最小浏览器验收
 
+### Missing activeTab grant and local route observation (2026-10-08)
+
+Current build marker: `permission-route-v4` (also exposed as `data-lingualens-build` on the dock). This supersedes the two earlier SPA/dock repair attempts below.
+
+- A page dock click does not grant `activeTab`. The previous guard required `tabs.Tab.url`, which can be absent without that grant, and therefore rejected a valid content script. The nonce-bound top-frame probe now supplies the current URL when the Tabs API hides it. Available tab URLs remain an additional consistency check; extension, frame, document and origin checks remain mandatory. No new permission was added.
+- Session initialization no longer deletes valid continuation state merely because tab URLs are permission-redacted. Missing tabs, known origin mismatches and invalid records are still removed. A page must pass the live-document handshake before dispatch.
+- Observe committed Navigation API entries, back/forward/hash events, and a lightweight 250 ms URL comparison fallback. The fallback performs no network requests or whole-page DOM scan. It also works when `tabs.onUpdated` does not expose URL changes. Website history functions remain untouched.
+- Results and DOM flushes also check the active route URL, closing the gap before a delayed navigation callback can suspend the engine. Route departure keeps the document budget and aborts/cancels old work; successful results and existing unknown outcomes are preserved.
+- Fully settled continuous batches deliberately close their idle Port. New content opens a new channel for new batch IDs; this is not recovery/replay of an interrupted batch. Unexpected active-channel loss still requires a user action. This avoids mistaking ordinary idle SW shutdown for an active-stream failure.
+- Reused labels remove stale bilingual suffixes even when the site's new text is skipped by extraction. Restore continues to preserve website edits.
+- Background waits for old context menus to be removed before recreating them, and consumes creation callback errors. Old error entries in Chrome's extension error history are not automatically deleted.
+
+Actual installed Chrome checks on YouTube, using the user's existing configuration through UI only: a fresh tab's dock directly started translation (`66/112` observed); detail-page navigation continued automatically; back during `167/174` cancelled unfinished detail work (`7 cancelled`) and then translated newly returned homepage content (`202/209`, with the other 7 cancelled). The new homepage's visible video headings contained translation markers. Restore removed all translation markers. No toolbar activation, cache clearing, credential inspection or settings edits were needed for these checks. These numbers are cumulative text-item counts, not fetch counts.
+
+The same browser run exposed the idle-Port warning and stale reused-label suffix described above; dedicated regression tests were added. After the user reloaded `permission-route-v4`, a new dock-only start reached `49/49`. It remained in the watching state for over 45 seconds without intervention, then PageDown brought new content into view and automatic work reached `58/62`, with 4 cancelled changed/removed items and no errors/unknown/channel warning. This used the installed extension, not a simulated DOM. The screenshot is local-only in ignored `dev/acceptance/permission-route-v4-youtube.jpg`. All tests, TypeScript, Chrome/Firefox production builds and both artifact audits passed.
+
+Node tests cover missing URL grants, rejection of false document/origin claims, local route deduplication/cleanup, pre-observer result rejection, idle rebind versus active loss, label cleanup and repeated menu initialization. The browser check does not prove Firefox UI, upstream billing cancellation, actual SW termination/recovery, or exhaustive navigation behavior on every website. The final idle run did not inspect the worker, so it is an idle-behavior check, not evidence that a worker was killed. Firefox signed installation is unchanged.
+
+References: [Chrome activeTab](https://developer.chrome.com/docs/extensions/develop/concepts/activeTab), [Tabs API permissions](https://developer.chrome.com/docs/extensions/reference/api/tabs).
+
 ### Back navigation and dock repair (2026-10-08)
 
 Build marker: `spa-dock-v2`. Chrome and Firefox share the changes; no signed package is generated.

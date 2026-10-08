@@ -1,5 +1,6 @@
 import type { ReportedServiceTier } from '../shared/types';
 import { sanitizeServiceTier } from '../shared/relay-protocol.ts';
+import { PRIVATE_BUILD_ID } from '../shared/build-info.ts';
 
 export interface BatchDiagnostic {
   taskId: string;
@@ -28,7 +29,7 @@ export interface BatchDiagnostic {
   reportedServiceTier?: ReportedServiceTier | null;
 }
 
-export const BATCH_DIAGNOSTICS_BUILD = 'spa-dock-v2';
+export const BATCH_DIAGNOSTICS_BUILD = PRIVATE_BUILD_ID;
 const MAX_ENTRIES = 40;
 
 export interface TaskTiming {

@@ -7,6 +7,54 @@ import { getTaskJournal, initializeTaskJournal, removeOtherDocumentJournals, ens
 const options = { targetLang: 'zh-CN', sourceLang: 'en', displayMode: 'replace',
   maxCharsPerRequest: 500, maxItemsPerRequest: 5, maxPageChars: 100_000, maxPageRequests: 100, continuous: true };
 
+test('idle channels close deliberately and only new batches reconnect; active loss still needs a user action', async () => {
+  const dom = mount();
+  dom.add('First page paragraph');
+  const h = browserHarness();
+  const engine = new PageTranslateEngine();
+  let progress;
+  await engine.start(options, (p) => { progress = p; });
+  assert.equal(h.ports[0].closed, true);
+  assert.equal(progress.channelDisconnected, false);
+  h.ports[0].disconnect();
+  const next = dom.add('New paragraph after idle');
+  await until(() => next.textContent.startsWith('[translated]'));
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.ports.length, 2);
+  assert.equal(progress.channelDisconnected, false);
+  h.setDelay(true);
+  dom.add('Third paragraph with actual channel loss');
+  await until(() => h.calls.length === 3);
+  h.ports.at(-1).disconnect();
+  await until(() => !engine.running);
+  dom.add('Fourth paragraph waits for user');
+  await new Promise((resolve) => setTimeout(resolve, 650));
+  assert.equal(progress.channelDisconnected, true);
+  assert.equal(h.calls.length, 3);
+  h.setDelay(false);
+  engine.supplement();
+  await until(() => h.calls.length === 4);
+  assert.deepEqual(h.calls[3].map((item) => item.text), ['Fourth paragraph waits for user']);
+  const batches = h.sent.filter((message) => message.type === 'TRANSLATE_BATCH');
+  assert.equal(new Set(batches.map((message) => message.payload.taskId)).size, 1);
+  await engine.cancel();
+});
+
+test('reused bilingual labels lose stale suffixes even if their new text does not need translation', async () => {
+  const dom = mount();
+  const label = dom.add('An English category');
+  const h = browserHarness();
+  const engine = new PageTranslateEngine();
+  await engine.start({ ...options, displayMode: 'bilingual' }, () => {});
+  assert.equal(label.parentElement.childNodes.length, 2);
+  label.textContent = '123';
+  dom.emit({ type: 'characterData', target: label });
+  await until(() => label.parentElement.childNodes.length === 1);
+  assert.equal(h.calls.length, 1);
+  await engine.restore();
+  assert.equal(label.textContent, '123');
+});
+
 test('visible button labels translate without replacing buttons or including input and editable text', async () => {
   const dom = mount();
   const label = dom.add('Overview');
@@ -56,6 +104,10 @@ function mount() {
     childNodes: [], parentElement: null, parentNode: null, dataset: {}, style: {},
     hasAttribute(name) { return (name === 'hidden' && this.hidden) || (name === 'data-lingualens-translation' && this.dataset.lingualensTranslation); },
     getAttribute() { return null; },
+    contains(node) {
+      for (let current = node; current; current = current.parentNode) if (current === this) return true;
+      return false;
+    },
     closest(selector) {
       for (let el = this; el; el = el.parentElement) {
         if (selector.includes('lingua-lens') && (el.tagName === 'LINGUA-LENS' || el.dataset.lingualensTranslation)) return el;
@@ -99,6 +151,7 @@ function mount() {
 
 function browserHarness(maxPageRequests = 100) {
   const calls = [];
+  const ports = [];
   let stored = {};
   let delay = false;
   const scheduler = new TranslationScheduler();
@@ -121,11 +174,15 @@ function browserHarness(maxPageRequests = 100) {
     runtime: {
       connect() {
         let onMessage;
-        return {
-          onMessage: { addListener(fn) { onMessage = fn; } }, onDisconnect: { addListener() {} },
+        let onDisconnect;
+        const port = {
+          closed: false,
+          onMessage: { addListener(fn) { onMessage = fn; } }, onDisconnect: { addListener(fn) { onDisconnect = fn; } },
           postMessage(message) { if (message.type === 'bind') queueMicrotask(() => onMessage({ ...message, type: 'bound' })); },
-          disconnect() {},
+          disconnect() { this.closed = true; onDisconnect?.(); },
         };
+        ports.push(port);
+        return port;
       },
       async sendMessage(message) {
         sent.push(message);
@@ -145,7 +202,7 @@ function browserHarness(maxPageRequests = 100) {
       },
     },
   };
-  return { calls, sent, scheduler, stored: () => stored, setDelay(value) { delay = value; },
+  return { calls, sent, ports, scheduler, stored: () => stored, setDelay(value) { delay = value; },
     clearJournal() { stored.relayTaskJournal = {}; } };
 }
 

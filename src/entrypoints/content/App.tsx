@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { AppSettings, MessageResponse, SelectionTriggerMode, SelectionModifierKey } from '../../shared/types';
 import { PageTranslateEngine, type TranslateProgress, type DisplayMode, type PageTranslateOptions } from '../../content/page-translator/engine';
 import { PageCheckQueue } from '../../content/page-translator/page-check-queue';
+import { observePageLocation } from '../../content/page-translator/location-observer';
 import { StatusBar } from '../../content/page-translator/StatusBar';
 import { AppLogo } from '../../shared/AppLogo';
 import { computeTriggerPosition } from '../../content/trigger-position';
@@ -232,6 +233,7 @@ export function ContentApp({ onReady }: Props) {
   pinnedRef.current = pinned;
 
   const startPageTranslation = useCallback(async () => {
+    if (routeUrl.current !== location.href) await autoCheckRef.current();
     const settings = settingsRef.current;
     const engine = engineRef.current;
     if (engine.listening) { engine.supplement(); return; }
@@ -415,14 +417,11 @@ export function ContentApp({ onReady }: Props) {
     };
     window.addEventListener('pagehide', hide);
     window.addEventListener('pageshow', show);
-    const route = () => { void autoCheckRef.current(); };
-    window.addEventListener('popstate', route);
-    window.addEventListener('hashchange', route);
+    const stopLocationObserver = observePageLocation(() => { void autoCheckRef.current(); });
     return () => {
       window.removeEventListener('pagehide', hide);
       window.removeEventListener('pageshow', show);
-      window.removeEventListener('popstate', route);
-      window.removeEventListener('hashchange', route);
+      stopLocationObserver();
       autoChecks.current.clear();
       void engineRef.current.cancel();
     };

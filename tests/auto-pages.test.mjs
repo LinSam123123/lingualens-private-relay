@@ -4,6 +4,35 @@ import { AutoPages } from '../src/background/auto-pages.ts';
 import { parseAutoPageConfig } from '../src/shared/auto-page-policy.ts';
 import { isTranslationBatchRequest } from '../src/background/message-policy.ts';
 import { PageCheckQueue } from '../src/content/page-translator/page-check-queue.ts';
+import { observePageLocation } from '../src/content/page-translator/location-observer.ts';
+
+test('local route observer catches push/back without tabs events, deduplicates and cleans up', () => {
+  const target = new EventTarget();
+  target.location = { href: 'https://example.com/start' };
+  target.navigation = new EventTarget();
+  let tick;
+  let cleared = false;
+  target.setInterval = (callback) => { tick = callback; return 1; };
+  target.clearInterval = () => { cleared = true; };
+  const seen = [];
+  const stop = observePageLocation(() => seen.push(target.location.href), target);
+  tick();
+  target.location.href = 'https://example.com/detail';
+  target.navigation.dispatchEvent(new Event('currententrychange'));
+  tick();
+  target.location.href = 'https://example.com/start';
+  target.dispatchEvent(new Event('popstate'));
+  tick();
+  target.location.href = 'https://example.com/fallback';
+  tick();
+  assert.deepEqual(seen, ['https://example.com/detail', 'https://example.com/start', 'https://example.com/fallback']);
+  stop();
+  assert.equal(cleared, true);
+  target.location.href = 'https://example.com/stopped';
+  target.dispatchEvent(new Event('popstate'));
+  target.navigation.dispatchEvent(new Event('currententrychange'));
+  assert.equal(seen.length, 3);
+});
 
 const config = { sourceLang: 'en', targetLang: 'zh-CN', displayMode: 'replace' };
 const sender = { id: 'extension', tab: { id: 7 }, frameId: 0, url: 'https://example.com/chapter1' };
@@ -67,6 +96,40 @@ test('live proof rejects mismatched URL, foreign frame and false document claims
   await assert.rejects(h.service.assertLiveDocument('document-0001', sender), /STALE_PAGE/);
   h.setLive('document-0001');
   await assert.rejects(h.service.assertLiveDocument('document-0001', { ...sender, frameId: 1 }), /TOP_CONTENT_SCRIPT_REQUIRED/);
+});
+
+test('dock start and SPA continuation work without an activeTab URL grant', async () => {
+  const h = harness(true);
+  h.setLive('document-0001', sender.url);
+  h.setUrl(undefined);
+  const started = await h.service.message('PAGE_AUTO_START', { documentId: 'document-0001', config }, sender);
+  assert.equal(started.origin, 'https://example.com');
+  await h.service.assertLiveDocument('document-0001', sender);
+  h.setLive('document-0001', 'https://example.com/next');
+  await h.service.message('PAGE_AUTO_READY', { documentId: 'document-0001' }, sender);
+  const rebuilt = h.rebuild();
+  await rebuilt.initialize();
+  assert.equal(h.states()['7'].documentId, 'document-0001');
+  await rebuilt.assertLiveDocument('document-0001', sender);
+  await h.service.navigation(7, undefined, true);
+  await assert.rejects(h.service.assertLiveDocument('document-0001', sender), /STALE_PAGE/);
+  await h.service.navigation(7, undefined, false, true);
+  await h.service.assertLiveDocument('document-0001', sender);
+});
+
+test('hidden tab URLs do not bypass document/origin checks or keep cross-site continuation', async () => {
+  const h = harness(true);
+  h.setLive('document-0001', sender.url);
+  h.setUrl(undefined);
+  await h.service.message('PAGE_AUTO_START', { documentId: 'document-0001', config }, sender);
+  h.setLive('document-0002', sender.url);
+  await assert.rejects(h.service.assertLiveDocument('document-0001', sender), /STALE_PAGE/);
+  await h.service.message('PAGE_AUTO_READY', { documentId: 'document-0002' }, sender);
+  h.setLive('document-0003', 'https://other.example/page');
+  await assert.rejects(h.service.assertLiveDocument('document-0003', sender), /STALE_PAGE/);
+  assert.equal(await h.service.message('PAGE_AUTO_READY', { documentId: 'document-0003' },
+    { ...sender, url: 'https://other.example/page' }), null);
+  assert.deepEqual(h.states(), {});
 });
 
 test('document replacement cancels once under concurrent handshakes; SPA changes never cancel', async () => {

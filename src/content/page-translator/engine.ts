@@ -90,6 +90,11 @@ export class PageTranslateEngine {
   private journalCharged = false;
   private navigationWaiting = false;
   private documentCheck: ReturnType<typeof setTimeout> | null = null;
+  private routeUrl = typeof location === 'undefined' ? '' : location.href;
+
+  private routeMatches(): boolean {
+    return typeof location === 'undefined' || location.href === this.routeUrl;
+  }
 
   documentReady(): void {
     if (this.isCancelled || !this.navigationWaiting) return;
@@ -128,6 +133,7 @@ export class PageTranslateEngine {
   async start(options: PageTranslateOptions, onProgress: ProgressCallback): Promise<void> {
     if (this.isRunning) return;
     this.resetTaskState();
+    this.routeUrl = typeof location === 'undefined' ? '' : location.href;
     this.isCancelled = false;
     this.isPaused = options.startPaused === true;
     this.isRunning = true;
@@ -198,6 +204,15 @@ export class PageTranslateEngine {
   private collectDynamic(root: Element): void {
     const options = this.sessionOptions;
     if (!options || !this.listening || this.budgetExhausted) return;
+    // A reused label may now be ineligible (for example, digits or native-language text).
+    // Remove its old bilingual suffix even when extraction produces no replacement item.
+    this.bilingualMarkers = this.bilingualMarkers.filter((marker) => {
+      if (!root.contains(marker)) return true;
+      const owner = this.domById.get(marker.dataset.lingualensFor ?? '');
+      if (owner && this.revisions.current(owner)) return true;
+      marker.remove();
+      return false;
+    });
     for (const candidate of extractTranslationItems(root, options.maxPageChars, (node) => {
       const parent = node.parentElement;
       if (parent && nearViewport(parent)) return true;
@@ -237,7 +252,7 @@ export class PageTranslateEngine {
   }
 
   private async pumpDynamic(): Promise<void> {
-    if (this.isRunning || this.isPaused || this.isCancelled || this.suspended
+    if (!this.routeMatches() || this.isRunning || this.isPaused || this.isCancelled || this.suspended
       || this.portLost || this.navigationWaiting || document.hidden || this.budgetExhausted || !this.sessionOptions
       || (!this.listening && this.deferredBatches.length === 0)) return;
     const options = this.sessionOptions;
@@ -326,6 +341,7 @@ export class PageTranslateEngine {
 
   async reattach(): Promise<void> {
     if (!this.suspended || this.isCancelled || !this.sessionOptions) return;
+    this.routeUrl = typeof location === 'undefined' ? '' : location.href;
     const identity = this.currentIdentity();
     this.suspended = false;
     this.portLost = false;
@@ -511,7 +527,7 @@ export class PageTranslateEngine {
   }
 
   private isCurrent(identity: { taskId: string; sessionId: string; generation: number }): boolean {
-    return identity.taskId.length > 0
+    return this.routeMatches() && identity.taskId.length > 0
       && identity.taskId === this.taskId
       && identity.sessionId === this.sessionId
       && identity.generation === this.generation;
@@ -521,6 +537,9 @@ export class PageTranslateEngine {
     if (!this.isCurrent(identity)) return;
     this.isRunning = false;
     if (this.listening || this.suspended || this.navigationWaiting || this.deferredBatches.length > 0) {
+      // An idle MV3 worker may sleep. Close deliberately after replies/DOM acknowledgements,
+      // so that a future new batch binds afresh without mistaking normal sleep for stream loss.
+      this.closeStreamPort();
       this.emitProgress();
       if (!this.suspended) void this.pumpDynamic();
       return;
@@ -707,7 +726,7 @@ export class PageTranslateEngine {
   }
 
   private onStreamMessage(message: unknown): void {
-    if (!message || typeof message !== 'object') return;
+    if (!this.routeMatches() || !message || typeof message !== 'object') return;
     const value = message as Partial<StreamItemMessage>;
     if (value.type !== 'stream-item' || !value.item || !value.batchId || !value.requestId) return;
     const decision = decideStreamApply({
@@ -744,6 +763,7 @@ export class PageTranslateEngine {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
+    if (!this.routeMatches()) return;
     for (const domItemId of this.domRefresh) {
       const meta = this.pendingDomAck.get(domItemId);
       const wrote = this.applyDomItemIfReady(domItemId, mode);

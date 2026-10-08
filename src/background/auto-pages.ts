@@ -20,14 +20,18 @@ export class AutoPages {
   private queue: Promise<unknown> = Promise.resolve();
   constructor(dependencies: AutoPageDependencies) { this.dependencies = dependencies; }
 
-  private async matchesDocument(tabId: number, documentId: string, senderUrl: string | undefined): Promise<boolean> {
+  private async documentUrl(tabId: number, documentId: string, senderUrl: string | undefined): Promise<string | null> {
     const url = await this.dependencies.tabUrl(tabId);
-    if (!this.dependencies.liveDocument) return samePageUrl(senderUrl, url);
-    if (!ordinaryOrigin(url) || ordinaryOrigin(senderUrl) !== ordinaryOrigin(url)) return false;
+    if (!this.dependencies.liveDocument) return samePageUrl(senderUrl, url) ? url! : null;
+    // tabs.Tab.url is absent until an action grants activeTab. A dock click does not.
+    // The nonce-bound top-frame probe proves the current document without new permissions.
+    if (url !== undefined && (!ordinaryOrigin(url) || ordinaryOrigin(senderUrl) !== ordinaryOrigin(url))) return null;
     const live = await this.dependencies.liveDocument(tabId).catch(() => null);
     const latest = await this.dependencies.tabUrl(tabId);
-    return live?.documentId === documentId && samePageUrl(live.url, latest)
-      && ordinaryOrigin(senderUrl) === ordinaryOrigin(latest);
+    if (!live || live.documentId !== documentId || !ordinaryOrigin(live.url)
+      || ordinaryOrigin(senderUrl) !== ordinaryOrigin(live.url)
+      || (latest !== undefined && !samePageUrl(live.url, latest))) return null;
+    return live.url;
   }
 
   private transaction<T>(operation: (states: Record<string, AutoPageState>) => Promise<T>): Promise<T> {
@@ -43,10 +47,14 @@ export class AutoPages {
     await this.transaction(async (states) => {
       for (const [id, state] of Object.entries(states)) {
         let url: string | undefined;
-        try { url = await this.dependencies.tabUrl(Number(id)); } catch { /* tab closed */ }
+        let exists = true;
+        try {
+          url = await this.dependencies.tabUrl(Number(id));
+          if (url === undefined) url = (await this.dependencies.liveDocument?.(Number(id)))?.url;
+        } catch { exists = false; }
         if (!parseDocumentId(state.documentId) || !parseAutoPageConfig({
           sourceLang: state.sourceLang, targetLang: state.targetLang, displayMode: state.displayMode,
-        }) || ordinaryOrigin(url) !== state.origin) delete states[id];
+        }) || !exists || (url !== undefined && ordinaryOrigin(url) !== state.origin)) delete states[id];
       }
       await this.dependencies.write(states);
     });
@@ -63,8 +71,8 @@ export class AutoPages {
     if (!documentId || Object.keys(value).some((key) => !fields.includes(key))) throw new Error('INVALID_AUTO_PAGE_REQUEST');
     const tabId = sender.tab!.id!;
     return this.transaction(async (states) => {
-      const url = await this.dependencies.tabUrl(tabId);
-      if (!await this.matchesDocument(tabId, documentId, sender.url)) throw new Error('STALE_PAGE');
+      const url = await this.documentUrl(tabId, documentId, sender.url);
+      if (!url) throw new Error('STALE_PAGE');
       const origin = ordinaryOrigin(url)!;
       let state: AutoPageState | undefined = states[String(tabId)];
       if (state && state.origin !== origin) {
@@ -120,7 +128,7 @@ export class AutoPages {
         await this.dependencies.write(states);
       }
       if (state?.navigationPending && completed && this.dependencies.liveDocument
-        && await this.matchesDocument(tabId, state.documentId, state.origin)) {
+        && await this.documentUrl(tabId, state.documentId, state.origin)) {
         states[String(tabId)] = { ...state, navigationPending: false };
         await this.dependencies.write(states);
       }
@@ -132,7 +140,7 @@ export class AutoPages {
     if (!isTopPageSender(sender, this.dependencies.extensionId())) throw new Error('TOP_CONTENT_SCRIPT_REQUIRED');
     await this.transaction(async (states) => {
       const tabId = sender.tab!.id!;
-      if (!await this.matchesDocument(tabId, documentId, sender.url)) throw new Error('STALE_PAGE');
+      if (!await this.documentUrl(tabId, documentId, sender.url)) throw new Error('STALE_PAGE');
       const state = states[String(tabId)];
       if (state && (state.navigationPending || state.documentId !== documentId)) throw new Error('STALE_PAGE');
     });

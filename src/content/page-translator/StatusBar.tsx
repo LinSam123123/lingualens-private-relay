@@ -4,6 +4,7 @@ import { type DisplayMode, type TranslateProgress } from './engine';
 import { statusBarFlags } from './status-bar-state';
 import { AppLogo } from '../../shared/AppLogo';
 import { ActionButton } from './ActionButton';
+import { PRIVATE_BUILD_ID } from '../../shared/build-info';
 
 interface Props {
   progress: TranslateProgress | null;
@@ -68,7 +69,7 @@ export function StatusBar({
   const finished = !running && terminal > 0;
   const label = t(progress ? 'statusBar.expand' : 'popup.translatePage');
   return (
-    <div ref={dock} className="st-page-dock" style={{ top }} data-lingualens-ui="true">
+    <div ref={dock} className="st-page-dock" style={{ top }} data-lingualens-ui="true" data-lingualens-build={PRIVATE_BUILD_ID}>
       <ActionButton
         type="button"
         onPointerDown={(event) => {

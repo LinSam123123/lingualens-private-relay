@@ -148,6 +148,33 @@ async function until(fn) {
   throw new Error('timed out');
 }
 
+test('URL changes reject old stream and final results even before the route observer runs', async () => {
+  const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
+  globalThis.location = { href: 'https://example.com/detail' };
+  const node = textNode('Detail original');
+  const h = installBrowser(() => ({ success: false }));
+  const engine = new PageTranslateEngine();
+  try {
+    const running = engine.start(options, () => {});
+    await until(() => h.batchCalls.length === 1);
+    const request = h.batchCalls[0].message.payload;
+    globalThis.location.href = 'https://example.com/list';
+    h.ports[0].emit({ type: 'stream-item', taskId: request.taskId, sessionId: request.sessionId,
+      generation: request.generation, batchId: request.batchId, requestId: request.requestId,
+      attempt: 1, item: { id: request.items[0].id, text: 'Late detail translation' } });
+    h.batchCalls[0].resolve(batchResult(request, 'Late final translation'));
+    await running;
+    assert.equal(node.textContent, 'Detail original');
+    assert.equal(h.sent.some((message) => message.payload?.action === 'complete'), false);
+    await engine.suspend();
+    assert.equal(engine.running, false);
+    assert.equal(h.sent.at(-1).payload.action, 'suspend');
+  } finally {
+    await engine.cancel();
+    delete globalThis.location;
+  }
+});
+
 test('navigation rejection before dispatch stays pending and resumes the same batch only after handshake', async () => {
   const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
   const node = textNode('New SPA tab content');
