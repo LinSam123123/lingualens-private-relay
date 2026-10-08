@@ -2,8 +2,10 @@
 
 ## 1. 构建与安装
 
+使用 Node.js 24、npm 10+ 和仓库锁文件。公开发布前另见 [发布检查](docs/PUBLICATION_REVIEW.md)。
+
 ```powershell
-npm install
+npm ci
 npm run verify
 ```
 
@@ -18,7 +20,7 @@ Chrome 和 Edge 的加载方法：
 
 ### Firefox 临时预览
 
-Firefox 完整适配仍属于第二阶段，但可以临时加载当前预览构建：
+Firefox 开发版与 Chrome 共用增量、流式和调度代码；最新改动的完整 Firefox 浏览器验收仍未完成。临时加载：
 
 ```powershell
 npm run build:firefox
@@ -60,6 +62,8 @@ Base URL 必须满足：
 ```
 
 未知 ID 会被忽略；缺失 ID 只会在用户重试失败项时补发。扩展不会按译文长度切分并猜测节点归属。
+
+开启流式后，通过 SSE 接收完整 JSONL 条目再逐条回写，详见 [流式说明](docs/STREAMING.md)。点击一次整页翻译后会监听新增内容，并可在同标签页同 origin 导航后延续；停止自动翻译或恢复原文会关闭延续。使用私人账户页面时，后续可见正文也可能发送到中转站，详见 [隐私说明](docs/privacy.md)。
 
 ## 3. 保存与授权
 

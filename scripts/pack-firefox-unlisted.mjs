@@ -22,7 +22,6 @@ const sourcePaths = [
   'wxt.config.ts',
   'tsconfig.json',
   'postcss.config.js',
-  'tailwind.config.js',
   'src',
   'tests',
   'scripts',

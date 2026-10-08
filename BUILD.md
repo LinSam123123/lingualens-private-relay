@@ -1,6 +1,6 @@
 # Firefox source build (AMO reviewers)
 
-This file is the step-by-step recipe for an **exact copy** of the uploaded Firefox add-on. The uploaded zip is produced by WXT/Vite from the TypeScript in `src/`. That is why this source tree is required.
+This file describes building the checked-out Firefox source. For AMO review, use the exact source archive supplied with that add-on. The development branch can differ from an older signed package even when both say `0.6.0`; version alone does not establish matching source.
 
 Do not treat `.output/` as source. Do not minify or bundle this tree by hand.
 
@@ -18,8 +18,8 @@ No other OS-specific tools are required beyond Node.js and npm.
 
 | Program | Version | Install |
 | --- | --- | --- |
-| Node.js | **20.x or 24.x** (this package was last built with Node.js v24.14.0) | https://nodejs.org/ — LTS installer, or `nvm install 24` |
-| npm | **10+** (ships with Node.js 20/24) | Installed with Node.js. Check with `npm -v`. |
+| Node.js | **24.x** (verified with v24.14.0; tests require built-in TypeScript stripping) | https://nodejs.org/ or `nvm install 24` |
+| npm | **10+** | Installed with Node.js. Check with `npm -v`. |
 
 Verify:
 
@@ -28,7 +28,7 @@ node -v
 npm -v
 ```
 
-`node -v` must print `v20` or newer.
+Use Node.js 24 for the full test/build workflow. The older package engine floor is not a claim that the current tests run on Node.js 20.
 
 ## One build script
 

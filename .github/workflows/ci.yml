@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -12,12 +14,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
 
       - run: npm ci
+      - run: npm run audit:repository
+      - run: npm test
       - run: npx tsc --noEmit
       - run: npm run build
+      - run: npm run audit:build
+      - run: npm run build:firefox
+      - run: npm run audit:build:firefox

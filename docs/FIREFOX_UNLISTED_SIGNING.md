@@ -35,7 +35,7 @@ Hub 源码页可粘贴：
 ```text
 Unlisted personal Relay translator. Source is TypeScript.
 Build: node scripts/amo-build.mjs
-Requires Node.js 20+ (last built on v24.14.0) and npm 10+ on Windows, macOS, or Linux.
+Use Node.js 24 (last built on v24.14.0) and npm 10+ on Windows, macOS, or Linux. The test suite uses built-in TypeScript stripping, so the older Node.js 20 package engine floor is not sufficient for this workflow.
 Output: .output/firefox-mv2
 websiteContent: page/selection text is sent only to the user-configured Relay. No telemetry.
 ```

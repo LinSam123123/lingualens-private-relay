@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "../../shared/tailwind.css";
 
 .st-trigger-btn {
   display: block;
@@ -284,7 +282,7 @@
 
 /* Page translation status bar */
 .st-status-bar {
-  @apply flex flex-col gap-[12px] p-[12px] border border-gray-200 shadow-sm;
+  @apply flex flex-col gap-[12px] p-[12px] border border-gray-200 shadow-xs;
   position: absolute;
   right: 54px;
   width: min(340px, calc(100vw - 78px));
@@ -313,7 +311,7 @@
 }
 
 .st-status-icon {
-  @apply flex-shrink-0;
+  @apply shrink-0;
   display: block;
   width: 16px;
   height: 16px;

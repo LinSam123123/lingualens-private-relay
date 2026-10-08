@@ -8,10 +8,12 @@
   },
   "private": true,
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "type": "module",
   "scripts": {
+    "audit:repository": "node scripts/audit-repository.mjs --privacy",
+    "test:repository-audit": "node --test tests/repository-audit.test.mjs",
     "dev": "wxt",
     "dev:firefox": "wxt --browser firefox",
     "build": "wxt build",
@@ -41,7 +43,7 @@
     "test:mock-relay": "node scripts/mock-relay.mjs --self-test",
     "test:build-audit": "node --test tests/build-audit.test.mjs",
     "test:dynamic": "node --experimental-strip-types --test tests/node-revisions.test.mjs tests/dynamic-observer.test.mjs tests/dynamic-engine.test.mjs tests/auto-pages.test.mjs",
-    "test": "npm run test:security && npm run test:cache && npm run test:relay && npm run test:relay-stream && npm run test:relay-adapter-stream && npm run test:fast-mode && npm run test:stream-delivery && npm run test:engine-task && npm run test:batch-chain && npm run test:page-write-attempt && npm run test:scheduler && npm run test:scheduler-stream && npm run test:page-engine && npm run test:batch-diagnostics && npm run test:batching-metrics && npm run test:storage-access && npm run test:side-panel && npm run test:credential-idb && npm run test:mock-relay && npm run test:build-audit && npm run test:dynamic",
+    "test": "npm run test:repository-audit && npm run test:security && npm run test:cache && npm run test:relay && npm run test:relay-stream && npm run test:relay-adapter-stream && npm run test:fast-mode && npm run test:stream-delivery && npm run test:engine-task && npm run test:batch-chain && npm run test:page-write-attempt && npm run test:scheduler && npm run test:scheduler-stream && npm run test:page-engine && npm run test:batch-diagnostics && npm run test:batching-metrics && npm run test:storage-access && npm run test:side-panel && npm run test:credential-idb && npm run test:mock-relay && npm run test:build-audit && npm run test:dynamic",
     "audit:build": "node scripts/audit-build.mjs",
     "audit:build:firefox": "node scripts/audit-build.mjs firefox",
     "verify:firefox": "npm test && tsc --noEmit && npm run build:firefox && npm run audit:build:firefox",
@@ -55,15 +57,16 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-i18next": "^17.0.8",
-    "wxt": "^0.20.26"
+    "wxt": "^0.21.4"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@wxt-dev/auto-icons": "^1.1.1",
-    "autoprefixer": "^10.5.0",
-    "postcss": "^8.5.14",
-    "tailwindcss": "^3.4.19",
+    "@wxt-dev/auto-icons": "^1.1.2",
+    "@tailwindcss/postcss": "^4.3.3",
+    "postcss": "^8.5.29",
+    "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3"
   }
 }

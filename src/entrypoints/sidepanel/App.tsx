@@ -164,7 +164,7 @@ export function App() {
             setSourceLang(next);
             if (targetLang) void setTranslatorLanguages({ sourceLang: next, targetLang });
           }}
-          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400
+          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-400
                      disabled:opacity-60 disabled:cursor-wait"
         >
           {SUPPORTED_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
@@ -187,7 +187,7 @@ export function App() {
             setTargetLang(next);
             if (sourceLang) void setTranslatorLanguages({ sourceLang, targetLang: next });
           }}
-          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400
+          className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-400
                      disabled:opacity-60 disabled:cursor-wait"
         >
           {SUPPORTED_LANGUAGES.filter((l) => l.code !== 'auto').map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
@@ -207,7 +207,7 @@ export function App() {
                 value={sourceText}
                 onChange={(e) => setSourceText(e.target.value)}
                 placeholder={t('sidepanel.placeholder')}
-                className="flex-1 w-full px-4 py-3 text-sm resize-none focus:outline-none"
+                className="flex-1 w-full px-4 py-3 text-sm resize-none focus:outline-hidden"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleTranslate();
                 }}

@@ -1,5 +1,7 @@
 # MVP 手动验收进度
 
+> 本文是截至 2026-09-12 的历史记录，不代表当前开发版已完成全量验收。后续功能与最新 Chrome 证据见 [DYNAMIC_TRANSLATION.md](DYNAMIC_TRANSLATION.md)，Firefox 当前缺口见 [FIREFOX_STREAMING_DEV.md](FIREFOX_STREAMING_DEV.md)。
+
 最后更新：2026-09-12
 
 分支：`codex/lingualens-private-translator`
@@ -97,13 +99,13 @@ npm run mock-relay
 Firefox 加载文件：
 
 ```text
-<home>\Documents\浏览器翻译插件\.output\firefox-mv2\manifest.json
+.output/firefox-mv2/manifest.json
 ```
 
 Edge 加载目录：
 
 ```text
-<home>\Documents\浏览器翻译插件\.output\chrome-mv3
+.output/chrome-mv3
 ```
 
 测试地址：

@@ -9,3 +9,17 @@ dev/
 .env
 .env.*
 amo-credentials*
+
+# Local sibling projects and browser/test artifacts; not part of this extension.
+/%SystemDrive%/
+/better-subs-relay/
+/crunchyroll-better-subs-relay-public/
+*.pem
+*.key
+*.p12
+*.pfx
+*.har
+*.sqlite
+*.sqlite3
+*.db
+*.zip

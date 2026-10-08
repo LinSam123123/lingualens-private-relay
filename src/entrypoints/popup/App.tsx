@@ -92,7 +92,7 @@ export function App() {
           }}
           className="shrink-0 px-2 py-1 rounded-md text-[11px] font-semibold uppercase tracking-wide
                      border border-indigo-200 text-indigo-600 bg-indigo-50 hover:bg-indigo-100
-                     focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                     focus:outline-hidden focus:ring-2 focus:ring-indigo-400/40"
           title={t('popup.sidePanelTitle')}
         >
           {t('popup.sidePanel')}
@@ -109,7 +109,7 @@ export function App() {
           void updateTranslatorLanguages({ targetLang: next });
         }}
         className="w-full mb-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm
-                   bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400
+                   bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400
                    disabled:opacity-60 disabled:cursor-wait"
       >
         {SUPPORTED_LANGUAGES.filter((l) => l.code !== 'auto').map((lang) => (
@@ -123,7 +123,7 @@ export function App() {
         onChange={(e) => setText(e.target.value)}
         placeholder={t('popup.placeholder')}
         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none
-                   focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
+                   focus:outline-hidden focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
         rows={3}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleTranslate();

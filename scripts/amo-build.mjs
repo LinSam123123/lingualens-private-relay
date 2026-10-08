@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const nodeMajor = Number(process.versions.node.split('.')[0]);
-if (!Number.isInteger(nodeMajor) || nodeMajor < 20) {
-  console.error(`Node.js 20+ is required. This process is v${process.versions.node}.`);
+if (!Number.isInteger(nodeMajor) || nodeMajor < 24) {
+  console.error(`Node.js 24+ is required for this test/build workflow. This process is v${process.versions.node}.`);
   process.exit(1);
 }
 

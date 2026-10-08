@@ -5,7 +5,7 @@
 在项目根目录运行 `npm run verify:firefox`。它执行全部测试、类型检查、Firefox production 构建和 Firefox 产物审计。Chrome 回归运行 `npm run verify`。
 
 临时加载文件：
-`<home>\Documents\浏览器翻译插件\.output\firefox-mv2\manifest.json`
+`.output/firefox-mv2/manifest.json` (relative to the repository root)
 
 设置页识别标记为 `permission-route-v4`。版本仍为 0.6.0；这不是已签名更新。默认非流式、并发 2、超时 25 秒，支持并发 1–10、字符和条目双上限及分开的计时。不会覆盖已保存的设置。
 
