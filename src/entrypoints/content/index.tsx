@@ -214,6 +214,12 @@ export default defineContentScript({
         return true;
       }
       switch (message.type) {
+          case 'PAGE_DOCUMENT_PROBE':
+            if (_sender.id === browser.runtime.id && !_sender.tab && appHandle
+              && typeof message.nonce === 'string' && message.nonce.length <= 128) {
+              sendResponse({ nonce: message.nonce, documentId: appHandle.getDocumentId(), url: location.href });
+            }
+            break;
         case 'PING':
           sendResponse({ ok: true });
           break;

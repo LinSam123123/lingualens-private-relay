@@ -27,6 +27,14 @@ Background 的 storage.session 仅保存标签页 origin、文档 ID、语言、
 
 ## 最小浏览器验收
 
+### SPA navigation repair (2026-10-08)
+
+- Background verifies a nonce-tagged top-frame document probe against the current tab URL and the engine's document session ID. Same-origin SPA path/query changes no longer depend on the sender URL staying current. Real document replacement and cross-origin messages still fail ownership checks.
+- Loading fences new submissions but does not by itself cancel the document. Completion can clear the fence only after proving the same document. A verified document replacement cancels the previous task once, serialized with repeated handshakes.
+- A batch rejected by the navigation guard before cache/scheduler/fetch returns `PAGE_DOCUMENT_NOT_READY`. The engine preserves its original IDs and waits for a bounded handshake, rather than creating unknown items or resetting the budget. Manual unknown retries are not automatically replayed.
+- Reload the development extension AND refresh existing pages once after updating, so their content scripts implement the new probe. No cache or Key clearing is required.
+- Verification: all Node tests, TypeScript, both production builds and both audits passed. A real Chromium DOM fixture using the shared engine and AutoPages with mock messaging survived four SPA switches (including a rapid pair), made four mock batch calls, and retained zero unknown/errors/cancellations. Restore preserved the latest website text. This fixture does not validate installed-extension transport, real GoDaddy, Firefox UI, or SW suspension.
+
 使用独立 Chrome / Firefox 配置文件，不能与同 ID 日常签名版混装。开发目录分别为 `.output/chrome-mv3` 和 `.output/firefox-mv2`。
 
 运行 `npm run mock-relay`；设置假 Key、`http://127.0.0.1:17891/ok/v1`、`mock-model`，打开流式。不要使用真实 Key。

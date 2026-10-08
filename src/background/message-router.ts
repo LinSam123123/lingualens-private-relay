@@ -57,11 +57,10 @@ export async function handleTabRemoved(tabId: number): Promise<void> {
   await translationScheduler.cancelTab(tabId);
 }
 
-export function handleTabNavigation(tabId: number, url: string | undefined, loading: boolean): Promise<void> {
+export function handleTabNavigation(tabId: number, url: string | undefined, loading: boolean, completed = false): Promise<void> {
   const previous = navigationBarriers.get(tabId) ?? Promise.resolve();
   const operation = previous.catch(() => undefined).then(async () => {
-    const enabled = await autoPages.navigation(tabId, url, loading);
-    if (loading) await translationScheduler.cancelTab(tabId, true);
+    const enabled = await autoPages.navigation(tabId, url, loading, completed);
     if (enabled === false) {
       await translationScheduler.cancelTab(tabId);
       await browser.tabs.sendMessage(tabId, { type: 'PAGE_AUTO_DISABLED' }).catch(() => undefined);
@@ -298,6 +297,12 @@ async function handleTranslationBatch(
   sender: RuntimeSenderLike,
 ): Promise<TranslationBatchResult> {
   const cacheEpoch = cacheGeneration();
+  await navigationBarriers.get(tabId);
+  try { await autoPages.assertLiveDocument(request.sessionId, sender); }
+  catch (error) {
+    if (error instanceof Error && error.message === 'STALE_PAGE') throw new Error('PAGE_DOCUMENT_NOT_READY');
+    throw error;
+  }
   const { relay, config } = await configuredRelayRuntime();
   const cached = await Promise.all(request.items.map(async (item) => ({
     item,
@@ -315,8 +320,6 @@ async function handleTranslationBatch(
     }));
   }
   if (missing.length > 0) {
-    await navigationBarriers.get(tabId);
-    await autoPages.assertLiveDocument(request.sessionId, sender);
     scheduled = await translationScheduler.submit(
       { ...request, items: missing },
       tabId,
@@ -380,8 +383,9 @@ export async function handleMessage(
     case 'PAGE_AUTO_MODE': {
       try {
         if (sender.tab?.id !== undefined) await navigationBarriers.get(sender.tab.id);
-        const state = await autoPages.message(String(message.type), message.payload, sender);
-        if (message.type === 'PAGE_AUTO_READY' && sender.tab?.id !== undefined) {
+        const state = await autoPages.message(String(message.type), message.payload, sender,
+          async () => { if (sender.tab?.id !== undefined) await translationScheduler.cancelTab(sender.tab.id, true); });
+        if (['PAGE_AUTO_READY', 'PAGE_AUTO_START'].includes(String(message.type)) && sender.tab?.id !== undefined) {
           await removeOtherDocumentJournals(sender.tab.id, (message.payload as { documentId: string }).documentId);
         }
         return { success: true, data: state };

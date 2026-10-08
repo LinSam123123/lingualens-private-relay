@@ -198,6 +198,7 @@
     "close": "Close"
   },
   "statusBar": {
+    "navigationWaiting": "Waiting for page navigation to settle (no request sent)",
     "failure": {
       "channel": "{{count}} items: the extension background or task journal is unavailable. After an extension update, reload the page. Otherwise manually retry unfinished items.",
       "timeout": "{{count}} items: the request exceeded its timeout. The relay may have processed it; manual retry may incur another charge.",

@@ -148,6 +148,35 @@ async function until(fn) {
   throw new Error('timed out');
 }
 
+test('navigation rejection before dispatch stays pending and resumes the same batch only after handshake', async () => {
+  const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
+  const node = textNode('New SPA tab content');
+  const h = installBrowser(() => ({ success: false }));
+  const engine = new PageTranslateEngine();
+  let progress;
+  const first = engine.start(options, (p) => { progress = p; });
+  await until(() => h.batchCalls.length === 1);
+  const request = h.batchCalls[0].message.payload;
+  h.batchCalls[0].resolve({ success: false, error: 'PAGE_DOCUMENT_NOT_READY' });
+  await first;
+  assert.equal(progress.unknown, 0);
+  assert.equal(progress.errors, 0);
+  assert.equal(progress.pending, 1);
+  assert.equal(progress.navigationWaiting, true);
+  assert.equal(h.batchCalls.length, 1);
+  engine.documentReady();
+  await until(() => h.batchCalls.length === 2);
+  const resumed = h.batchCalls[1].message.payload;
+  assert.equal(resumed.taskId, request.taskId);
+  assert.equal(resumed.requestId, request.requestId);
+  assert.equal(resumed.batchId, request.batchId);
+  assert.equal(resumed.manualRetryUnknown, false);
+  h.batchCalls[1].resolve(batchResult(resumed, 'TRANSLATED'));
+  await until(() => !engine.running);
+  assert.equal(node.textContent, 'TRANSLATED');
+  await engine.restore();
+});
+
 test('failed items can be retried after stopping, with progress and one dispatch per click sequence', async () => {
   const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
   const node = textNode('A failed paragraph can still be translated');
@@ -260,6 +289,24 @@ test('a late success, failure, or recovery from the previous task cannot change 
       scenario.name,
     );
   }
+});
+
+test('cancelled navigation wait neither completes early nor resumes deferred work', async () => {
+  const { PageTranslateEngine } = await import('../src/content/page-translator/engine.ts');
+  textNode('Pending navigation paragraph');
+  const h = installBrowser(() => ({ success: false }));
+  const engine = new PageTranslateEngine();
+  const pending = engine.start(options, () => {});
+  await until(() => h.batchCalls.length === 1);
+  h.batchCalls[0].resolve({ success: false, error: 'PAGE_DOCUMENT_NOT_READY' });
+  await pending;
+  assert.equal(h.sent.some((m) => m.payload?.action === 'complete'), false);
+  await engine.cancel();
+  engine.documentReady();
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  assert.equal(h.batchCalls.length, 1);
+  assert.equal(h.sent.some((m) => m.type === 'PAGE_AUTO_READY'), false);
+  await engine.restore();
 });
 
 test('manual retry rebinds the stream port and shows an item before the final reply', async () => {

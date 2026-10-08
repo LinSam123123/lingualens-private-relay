@@ -47,6 +47,7 @@ export interface TranslateProgress {
   listening?: boolean;
   budgetExhausted?: boolean;
   channelDisconnected?: boolean;
+  navigationWaiting?: boolean;
   failures?: Array<{ kind: FailureKind; count: number }>;
 }
 
@@ -87,6 +88,30 @@ export class PageTranslateEngine {
   private suspended = false;
   private portLost = false;
   private journalCharged = false;
+  private navigationWaiting = false;
+  private documentCheck: ReturnType<typeof setTimeout> | null = null;
+
+  documentReady(): void {
+    if (this.isCancelled || !this.navigationWaiting) return;
+    this.navigationWaiting = false;
+    this.emitProgress();
+    void this.pumpDynamic();
+  }
+
+  private checkDocument(attempt = 0): void {
+    if (this.documentCheck || attempt >= 3) return;
+    const identity = this.currentIdentity();
+    this.documentCheck = setTimeout(async () => {
+      this.documentCheck = null;
+      if (!this.isCurrent(identity) || this.isCancelled || !this.navigationWaiting) return;
+      const reply = await browser.runtime.sendMessage({
+        type: 'PAGE_AUTO_READY', payload: { documentId: identity.sessionId },
+      }).catch(() => null);
+      if (!this.isCurrent(identity) || this.isCancelled) return;
+      if (reply?.success && (!reply.data || reply.data.documentId === identity.sessionId)) this.documentReady();
+      else this.checkDocument(attempt + 1);
+    }, 500);
+  }
 
   get listening(): boolean { return this.observer !== null && !this.isCancelled; }
   get automaticActive(): boolean { return this.sessionOptions?.continuous === true && !this.isCancelled; }
@@ -199,13 +224,15 @@ export class PageTranslateEngine {
   supplement(explicit = true): void {
     if (!this.listening) return;
     if (explicit) this.portLost = false;
+    if (explicit && this.navigationWaiting) this.checkDocument();
     this.observer?.schedule(document.body);
     if (explicit) void this.pumpDynamic();
   }
 
   private async pumpDynamic(): Promise<void> {
     if (this.isRunning || this.isPaused || this.isCancelled || this.suspended
-      || this.portLost || document.hidden || this.budgetExhausted || !this.sessionOptions || !this.listening) return;
+      || this.portLost || this.navigationWaiting || document.hidden || this.budgetExhausted || !this.sessionOptions
+      || (!this.listening && this.deferredBatches.length === 0)) return;
     const options = this.sessionOptions;
     const additions: DomTranslationItem[] = [];
     for (const [id, item] of this.pendingDynamic) {
@@ -217,7 +244,9 @@ export class PageTranslateEngine {
     this.isRunning = true;
     this.domItems.push(...additions);
     for (const item of additions) this.domById.set(item.id, item);
-    const batches = this.deferredBatches.splice(0);
+    const batches = this.deferredBatches.splice(0).map((batch) => ({
+      ...batch, items: batch.items.filter((item) => this.currentNetworkItem(item.id)),
+    })).filter((batch) => batch.items.length > 0);
     const newBatches = buildBatches(buildNetworkItems(additions, options.maxCharsPerRequest),
       options.maxCharsPerRequest, options.maxItemsPerRequest);
     for (const batch of newBatches) {
@@ -250,6 +279,8 @@ export class PageTranslateEngine {
   }
 
   private stopWatching(): void {
+    if (this.documentCheck) clearTimeout(this.documentCheck);
+    this.documentCheck = null;
     this.observer?.disconnect();
     this.observer = null;
     document.removeEventListener?.('visibilitychange', this.onVisibility);
@@ -416,6 +447,12 @@ export class PageTranslateEngine {
       const response = await browser.runtime.sendMessage({ type: 'TRANSLATE_BATCH', payload: request });
       if (!this.isCurrent(identity)) return;
       if (!response?.success) {
+        if (response?.error === 'PAGE_DOCUMENT_NOT_READY' && !manualRetryFailed && !manualRetryUnknown) {
+          this.navigationWaiting = true;
+          if (!this.deferredBatches.some((entry) => entry.batchId === batch.batchId)) this.deferredBatches.push(batch);
+          this.checkDocument();
+          return;
+        }
         if (response?.error === 'DOCUMENT_JOURNAL_LOST' || response?.error === 'BACKGROUND_UNAVAILABLE') {
           this.portLost = true;
           this.journalCharged = true;
@@ -457,7 +494,7 @@ export class PageTranslateEngine {
   private async finishTask(identity: { taskId: string; sessionId: string; generation: number }): Promise<void> {
     if (!this.isCurrent(identity)) return;
     this.isRunning = false;
-    if (this.listening || this.suspended) {
+    if (this.listening || this.suspended || this.navigationWaiting || this.deferredBatches.length > 0) {
       this.emitProgress();
       if (!this.suspended) void this.pumpDynamic();
       return;
@@ -746,6 +783,7 @@ export class PageTranslateEngine {
       listening: this.listening,
       budgetExhausted: this.budgetExhausted,
       channelDisconnected: this.portLost,
+      navigationWaiting: this.navigationWaiting,
       failures: [...failures].map(([kind, count]) => ({ kind, count })),
     };
   }
@@ -790,6 +828,7 @@ export class PageTranslateEngine {
     this.suspended = false;
     this.portLost = false;
     this.journalCharged = false;
+    this.navigationWaiting = false;
     this.domItems = [];
     this.domById.clear();
     this.closeStreamPort();

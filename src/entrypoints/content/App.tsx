@@ -33,6 +33,7 @@ function phaseAfterPageTranslateEnds(progress: TranslateProgress | null): PageTr
 }
 
 export interface ContentAppHandle {
+  getDocumentId: () => string;
   showTrigger: (text: string, mouseX: number, mouseY: number, range: Range) => void;
   /** Open panel and translate immediately (e.g. context menu — no floating trigger step). */
   translateNow: (text: string) => void;
@@ -350,7 +351,7 @@ export function ContentApp({ onReady }: Props) {
         return;
       }
       const state = response.data as AutoPageState;
-      if (engine.listening) { engine.supplement(false); return; }
+      if (engine.listening) { engine.documentReady(); engine.supplement(false); return; }
       await engine.reattach();
       if (epoch !== autoPageEpoch.current) return;
       if (engine.listening) { applyPageTranslatePhase('running'); return; }
@@ -668,6 +669,7 @@ export function ContentApp({ onReady }: Props) {
       getPageTranslatePhase() {
         return pageTranslatePhaseRef.current;
       },
+      getDocumentId: () => engineRef.current.documentSessionId,
       getSelectionTriggerMode() {
         return selectionTriggerModeRef.current;
       },

@@ -304,7 +304,7 @@ export default defineBackground(() => {
     // Session restore after cold start often skips `loading`; `complete` carries the final URL.
     if (changeInfo.status === 'loading' || changeInfo.status === 'complete' || changeInfo.url) {
       void requireInitialization().then(() => handleTabNavigation(
-        tabId, changeInfo.url ?? tab.url, changeInfo.status === 'loading',
+        tabId, changeInfo.url ?? tab.url, changeInfo.status === 'loading', changeInfo.status === 'complete',
       )).catch(() => undefined);
       updatePageContextMenuIfFocusedTab(tabId).catch(() => {});
     }

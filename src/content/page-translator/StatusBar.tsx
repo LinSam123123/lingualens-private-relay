@@ -108,7 +108,7 @@ export function StatusBar({
       <div className="st-status-left">
         <AppLogo className="st-status-icon" />
         <span className="st-status-text" title={t('statusBar.progressHint')}>
-          {progress.budgetExhausted ? t('statusBar.budgetExhausted') : progress.channelDisconnected ? t('statusBar.channelDisconnected') : paused ? t('statusBar.paused') : listening && !running ? t('statusBar.listening', { done: progress.done, total: progress.total }) : preparing
+          {progress.budgetExhausted ? t('statusBar.budgetExhausted') : progress.navigationWaiting ? t('statusBar.navigationWaiting') : progress.channelDisconnected ? t('statusBar.channelDisconnected') : paused ? t('statusBar.paused') : listening && !running ? t('statusBar.listening', { done: progress.done, total: progress.total }) : preparing
             ? t('statusBar.preparing')
             : t(running ? 'statusBar.translatingProgress' : 'statusBar.translatedProgress', {
               done: progress.done,

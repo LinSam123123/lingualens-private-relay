@@ -7,20 +7,84 @@ import { PageCheckQueue } from '../src/content/page-translator/page-check-queue.
 
 const config = { sourceLang: 'en', targetLang: 'zh-CN', displayMode: 'replace' };
 const sender = { id: 'extension', tab: { id: 7 }, frameId: 0, url: 'https://example.com/chapter1' };
-function harness() {
+function harness(probe = false) {
   let states = {};
   let url = sender.url;
   let reads = 0;
+  let liveId = 'document-0001';
+  let liveUrl;
   const dependencies = {
     extensionId: () => 'extension',
     read: async () => { reads++; return structuredClone(states); },
     write: async (next) => { states = structuredClone(next); },
     tabUrl: async () => url,
+    ...(probe ? { liveDocument: async () => ({ documentId: liveId, url: liveUrl ?? url }) } : {}),
   };
   const service = new AutoPages(dependencies);
   return { service, rebuild: () => new AutoPages(dependencies),
-    setUrl(next) { url = next; }, states: () => states, reads: () => reads };
+    setUrl(next) { url = next; }, setLive(id, nextUrl) { liveId = id; liveUrl = nextUrl; }, states: () => states, reads: () => reads };
 }
+
+test('live document proof permits repeated SPA query/path changes with a frozen sender URL', async () => {
+  const h = harness(true);
+  await h.service.message('PAGE_AUTO_START', { documentId: 'document-0001', config }, sender);
+  for (const path of ['/portfolio?tab=external', '/portfolio?tab=domains', '/settings?tab=dns', '/chapter1']) {
+    h.setUrl(`https://example.com${path}`);
+    await h.service.navigation(7, `https://example.com${path}`);
+    await h.service.assertLiveDocument('document-0001', sender);
+    const ready = await h.service.message('PAGE_AUTO_READY', { documentId: 'document-0001' }, sender);
+    assert.equal(ready.documentId, 'document-0001');
+  }
+  const rebuilt = h.rebuild();
+  await rebuilt.initialize();
+  await rebuilt.assertLiveDocument('document-0001', sender);
+});
+
+test('loading blocks dispatch until completion proves the same document; reload still rejects the old document', async () => {
+  const h = harness(true);
+  await h.service.message('PAGE_AUTO_START', { documentId: 'document-0001', config }, sender);
+  await h.service.navigation(7, sender.url, true);
+  await assert.rejects(h.service.assertLiveDocument('document-0001', sender), /STALE_PAGE/);
+  await h.service.navigation(7, sender.url, false, true);
+  await h.service.assertLiveDocument('document-0001', sender);
+  await h.service.navigation(7, sender.url, true);
+  h.setLive('document-0002');
+  await h.service.navigation(7, sender.url, false, true);
+  await assert.rejects(h.service.assertLiveDocument('document-0001', sender), /STALE_PAGE/);
+  await assert.rejects(h.service.message('PAGE_AUTO_READY', { documentId: 'document-0001' }, sender), /STALE_PAGE/);
+  await h.service.message('PAGE_AUTO_READY', { documentId: 'document-0002' }, sender);
+  await h.service.assertLiveDocument('document-0002', sender);
+  await assert.rejects(h.service.assertLiveDocument('document-0001', sender), /STALE_PAGE/);
+  h.setUrl('https://other.example/page');
+  await assert.rejects(h.service.assertLiveDocument('document-0002', sender), /STALE_PAGE/);
+});
+
+test('live proof rejects mismatched URL, foreign frame and false document claims', async () => {
+  const h = harness(true);
+  h.setLive('document-0002');
+  await assert.rejects(h.service.message('PAGE_AUTO_START', { documentId: 'document-0001', config }, sender), /STALE_PAGE/);
+  h.setLive('document-0001', 'https://example.com/not-current');
+  await assert.rejects(h.service.assertLiveDocument('document-0001', sender), /STALE_PAGE/);
+  h.setLive('document-0001');
+  await assert.rejects(h.service.assertLiveDocument('document-0001', { ...sender, frameId: 1 }), /TOP_CONTENT_SCRIPT_REQUIRED/);
+});
+
+test('document replacement cancels once under concurrent handshakes; SPA changes never cancel', async () => {
+  const h = harness(true);
+  let cancellations = 0;
+  const cancel = async () => { cancellations++; await Promise.resolve(); };
+  await h.service.message('PAGE_AUTO_START', { documentId: 'document-0001', config }, sender, cancel);
+  h.setUrl('https://example.com/portfolio?tab=external');
+  await h.service.message('PAGE_AUTO_READY', { documentId: 'document-0001' }, sender, cancel);
+  assert.equal(cancellations, 0);
+  h.setLive('document-0002');
+  const first = h.service.message('PAGE_AUTO_READY', { documentId: 'document-0002' }, sender, cancel);
+  const second = h.service.message('PAGE_AUTO_READY', { documentId: 'document-0002' }, sender, cancel);
+  assert.deepEqual(await first, await second);
+  assert.equal(cancellations, 1);
+  await assert.rejects(h.service.message('PAGE_AUTO_READY', { documentId: 'document-0001' }, sender, cancel), /STALE_PAGE/);
+  assert.equal(cancellations, 1);
+});
 
 test('same-origin chapters continue, repeated ready is stable, a stale stop cannot disable the new page', async () => {
   const h = harness();
